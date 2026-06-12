@@ -24,8 +24,11 @@ class FakeStore:
 
     saved: list = field(default_factory=list)
 
-    def save(self, response: dict) -> None:
-        self.saved.append(response)
+    def save_user(self, message: dict) -> None:
+        self.saved.append({"type": "user", "message": message})
+
+    def save_completion(self, response: dict) -> None:
+        self.saved.append({"type": "completion", "response": response})
 
 
 def message(content: str) -> dict:
@@ -80,10 +83,15 @@ def test_shows_the_models_answer_to_the_user(run, capsys):
 
 
 def test_records_the_whole_conversation(run, store):
-    run(FakeClient([tool("echo hi"), message("done")]))
+    run(FakeClient([tool("echo hi"), message("done")]), prompt="hi")
 
-    # Every backend response is persisted so the session can be replayed.
-    assert len(store.saved) == 2
+    # The user prompt plus every backend response is persisted so the session can be replayed.
+    assert [entry["type"] for entry in store.saved] == [
+        "user",
+        "completion",
+        "completion",
+    ]
+    assert store.saved[0]["message"] == {"role": "user", "content": "hi"}
 
 
 def test_survives_an_invalid_response(run, capsys):

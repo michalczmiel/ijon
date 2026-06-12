@@ -68,7 +68,8 @@ class Config:
 
 
 class SessionStore(Protocol):
-    def save(self, response: dict) -> None: ...
+    def save_user(self, message: dict) -> None: ...
+    def save_completion(self, response: dict) -> None: ...
 
 
 class FileSessionStore:
@@ -76,7 +77,13 @@ class FileSessionStore:
         self.config_dir = config_dir
         self.session_id = uuid.uuid4()
 
-    def save(self, response: dict) -> None:
+    def save_user(self, message: dict) -> None:
+        self._save({"type": "user", "message": message})
+
+    def save_completion(self, response: dict) -> None:
+        self._save({"type": "completion", "response": response})
+
+    def _save(self, response: dict) -> None:
         sessions_dir = os.path.join(self.config_dir, "sessions")
         os.makedirs(sessions_dir, exist_ok=True)
 
@@ -176,6 +183,8 @@ def run_agent(
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
+    session_store.save_user(messages[0])
+
     while iteration_count < args.max_iterations:
         iteration_count += 1
 
@@ -191,12 +200,12 @@ def run_agent(
             print("error: failed to get response")
             return
 
-        session_store.save(response)
+        session_store.save_completion(response)
 
         try:
             message = response["choices"][0]["message"]
-        except KeyError, IndexError, TypeError:
-            print(f"error: unexpected response shape: {json.dumps(response)}")
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"error: {e}, response: {json.dumps(response)}")
             return
 
         if message.get("content"):
