@@ -6,11 +6,7 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence
-
-
-class ChatClient(Protocol):
-    def chat_completions(self, body: dict) -> Optional[dict]: ...
+from typing import Optional, Sequence
 
 
 @dataclass
@@ -19,15 +15,18 @@ class OpenAICompatibleClient:
     api_key: Optional[str] = None
 
     def chat_completions(self, body: dict) -> Optional[dict]:
-        request = urllib.request.Request(f"{self.base_url}/v1/chat/completions")
-        request.add_header("Content-Type", "application/json")
-        if self.api_key:
-            request.add_header("Authorization", f"Bearer {self.api_key}")
         body_bytes = json.dumps(body).encode("utf-8")
-        request.add_header("Content-Length", str(len(body_bytes)))
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        request = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=body_bytes,
+            headers=headers,
+        )
 
         try:
-            with urllib.request.urlopen(request, body_bytes, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=60) as response:
                 data = response.read().decode("utf-8")
             return json.loads(data)
         except urllib.error.HTTPError as e:
@@ -65,11 +64,6 @@ class Config:
             config_dir=config_dir,
             bash_timeout=bash_timeout,
         )
-
-
-class SessionStore(Protocol):
-    def save_user(self, message: dict) -> None: ...
-    def save_completion(self, response: dict) -> None: ...
 
 
 class FileSessionStore:
@@ -173,8 +167,8 @@ class Arguments:
 
 def run_agent(
     args: Arguments,
-    session_store: SessionStore,
-    client: ChatClient,
+    session_store: FileSessionStore,
+    client: OpenAICompatibleClient,
     bash_timeout: int,
 ) -> None:
     """
