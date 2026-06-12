@@ -6,7 +6,11 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Optional, Protocol, Sequence
+
+
+class ChatClient(Protocol):
+    def chat_completions(self, body: dict) -> Optional[dict]: ...
 
 
 @dataclass
@@ -61,6 +65,10 @@ class Config:
             config_dir=config_dir,
             bash_timeout=bash_timeout,
         )
+
+
+class SessionStore(Protocol):
+    def save(self, response: dict) -> None: ...
 
 
 class FileSessionStore:
@@ -158,8 +166,8 @@ class Arguments:
 
 def run_agent(
     args: Arguments,
-    session_store: FileSessionStore,
-    client: OpenAICompatibleClient,
+    session_store: SessionStore,
+    client: ChatClient,
     bash_timeout: int,
 ) -> None:
     """
@@ -187,7 +195,7 @@ def run_agent(
 
         try:
             message = response["choices"][0]["message"]
-        except (KeyError, IndexError, TypeError):
+        except KeyError, IndexError, TypeError:
             print(f"error: unexpected response shape: {json.dumps(response)}")
             return
 
