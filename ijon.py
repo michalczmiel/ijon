@@ -9,33 +9,38 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 
+def request(url: str, headers: dict, body: dict) -> Optional[dict]:
+    body_bytes = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body_bytes,
+        headers=headers,
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:
+            data = response.read().decode("utf-8")
+        return json.loads(data)
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8")
+        print(f"HTTP {e.code} {e.reason}: {error_body}")
+        return None
+    except Exception as e:
+        print(e)
+        return None
+
+
 @dataclass
 class OpenAICompatibleClient:
     base_url: str
     api_key: Optional[str] = None
 
     def chat_completions(self, body: dict) -> Optional[dict]:
-        body_bytes = json.dumps(body).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        request = urllib.request.Request(
-            f"{self.base_url}/v1/chat/completions",
-            data=body_bytes,
-            headers=headers,
-        )
 
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                data = response.read().decode("utf-8")
-            return json.loads(data)
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode("utf-8")
-            print(f"HTTP {e.code} {e.reason}: {error_body}")
-            return None
-        except Exception as e:
-            print(e)
-            return None
+        return request(f"{self.base_url}/v1/chat/completions", headers, body)
 
 
 @dataclass
