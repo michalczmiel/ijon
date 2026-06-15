@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 
-def request(url: str, headers: dict, body: dict) -> Optional[dict]:
+def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
     body_bytes = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -20,7 +20,8 @@ def request(url: str, headers: dict, body: dict) -> Optional[dict]:
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
             data = response.read().decode("utf-8")
-        return json.loads(data)
+            headers = response.headers
+        return data, headers
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
         print(f"HTTP {e.code} {e.reason}: {error_body}")
@@ -40,7 +41,11 @@ class OpenAICompatibleClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        return request(f"{self.base_url}/v1/chat/completions", headers, body)
+        response = request(f"{self.base_url}/v1/chat/completions", headers, body)
+        if response is None:
+            return None
+        data, _ = response
+        return json.loads(data)
 
 
 @dataclass
@@ -94,6 +99,84 @@ class FileSessionStore:
             f.write(json.dumps(response) + "\n")
 
 
+class HttpMCPClient:
+    def __init__(self, url: str, headers: Optional[dict[str, str]] = None):
+        self.url = url
+        self.headers = {
+            "Accept": "text/event-stream, application/json",
+            "Content-Type": "application/json",
+            **(headers or {}),
+        }
+
+    def connect(self) -> bool:
+        body = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {"elicitation": {}},
+                "clientInfo": {"name": "ijon", "version": "1.0.0"},
+            },
+        }
+        response = request(self.url, self.headers, body)
+        if not response:
+            return False
+        _, headers = response
+        session_id = headers.get("mcp-session-id")
+        if not session_id:
+            return False
+
+        self.headers["mcp-session-id"] = session_id
+
+        return True
+
+    def _extract_sse_data(self, raw: str) -> Optional[dict]:
+        for line in raw.split("\n"):
+            line = line.strip()
+            if line.startswith("data:"):
+                return json.loads(line[5:])
+
+    def list_tools(self) -> list[dict]:
+        body = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+        }
+        response = request(self.url, self.headers, body)
+        if not response:
+            return []
+
+        data, _ = response
+
+        parsed = self._extract_sse_data(data)
+        if not parsed:
+            return []
+
+        result = parsed.get("result", {})
+        return result.get("tools", [])
+
+    def call_tool(self, name: str, arguments: dict) -> Optional[dict]:
+        body = {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": name,
+                "arguments": arguments,
+            },
+        }
+
+        response = request(self.url, self.headers, body)
+        if not response:
+            return None
+        data, _ = response
+        parsed = self._extract_sse_data(data)
+        if not parsed:
+            return None
+        return parsed.get("result")
+
+
 BASH_SCRIPT_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -129,7 +212,9 @@ def execute_bash_script(script: str, timeout: int) -> str:
         return f"error: Bash script timed out after {timeout} seconds"
 
 
-def execute_tool_call(tool_call: dict, bash_timeout: int) -> dict:
+def execute_tool_call(
+    tool_call: dict, bash_timeout: int, mcp_tools_client_map: dict
+) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
     try:
         tool_args = json.loads(tool_call["function"]["arguments"])
@@ -137,7 +222,17 @@ def execute_tool_call(tool_call: dict, bash_timeout: int) -> dict:
         result = f"error: invalid tool arguments JSON: {e}"
     else:
         tool_name = tool_call["function"]["name"]
-        if tool_name != BASH_SCRIPT_TOOL_SCHEMA["function"]["name"]:
+        if tool_name in mcp_tools_client_map:
+            print(f"executing MCP tool: {tool_name} with args {tool_args}")
+            mcp_tool_result = mcp_tools_client_map[tool_name].call_tool(
+                tool_name, tool_args
+            )
+            result = (
+                mcp_tool_result
+                if mcp_tool_result is not None
+                else "error: tool call failed"
+            )
+        elif tool_name != BASH_SCRIPT_TOOL_SCHEMA["function"]["name"]:
             result = f"error: unknown tool '{tool_name}'"
         elif not isinstance(tool_args, dict) or "script" not in tool_args:
             result = "error: missing required argument 'script'"
@@ -175,6 +270,7 @@ def run_agent(
     session_store: FileSessionStore,
     client: OpenAICompatibleClient,
     bash_timeout: int,
+    mcp_clients: Optional[list[HttpMCPClient]] = None,
 ) -> None:
     """
     Run the agent loop, handling tool calls and session storage.
@@ -184,6 +280,29 @@ def run_agent(
 
     session_store.save_user(messages[0])
 
+    mcp_tools_client_map = {}
+
+    tools = [BASH_SCRIPT_TOOL_SCHEMA]
+    if mcp_clients:
+        for mcp_client in mcp_clients:
+            connected = mcp_client.connect()
+            if not connected:
+                continue
+            mcp_tools = mcp_client.list_tools()
+            for mcp_tool in mcp_tools:
+                mcp_tool_name = mcp_tool["name"]
+                mcp_tools_client_map[mcp_tool_name] = mcp_client
+                tools.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": mcp_tool["name"],
+                            "description": mcp_tool["description"],
+                            "parameters": mcp_tool["inputSchema"],
+                        },
+                    }
+                )
+
     while iteration_count < args.max_iterations:
         iteration_count += 1
 
@@ -191,7 +310,7 @@ def run_agent(
             {
                 "model": args.model,
                 "messages": messages,
-                "tools": [BASH_SCRIPT_TOOL_SCHEMA],
+                "tools": tools,
             }
         )
 
@@ -217,13 +336,39 @@ def run_agent(
             break
 
         for tool_call in tool_calls:
-            messages.append(execute_tool_call(tool_call, bash_timeout))
+            messages.append(
+                execute_tool_call(tool_call, bash_timeout, mcp_tools_client_map)
+            )
     else:
         print(f"error: reached max iterations ({args.max_iterations})")
 
 
+def load_mcp_clients_from_config() -> list[HttpMCPClient]:
+    file_name = ".mcp.json"
+    try:
+        with open(file_name) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError as e:
+        print(f"error: malformed {file_name}: {e}")
+        return []
+    except Exception as e:
+        print(f"error: unexpected error while loading {file_name}: {e}")
+        return []
+
+    if "mcpServers" not in data:
+        return []
+
+    return [
+        HttpMCPClient(server["url"], server.get("headers"))
+        for server in data["mcpServers"].values()
+    ]
+
+
 def main() -> None:
     arguments = Arguments.from_args()
+    mcp_clients = load_mcp_clients_from_config()
 
     try:
         config = Config.from_env()
@@ -234,7 +379,9 @@ def main() -> None:
     client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
     session_store = FileSessionStore(config.config_dir)
 
-    run_agent(arguments, session_store, client, config.bash_timeout)
+    run_agent(
+        arguments, session_store, client, config.bash_timeout, mcp_clients=mcp_clients
+    )
 
 
 if __name__ == "__main__":

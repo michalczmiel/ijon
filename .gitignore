@@ -11,3 +11,4 @@ wheels/
 
 .env
 .ijon
+.mcp.json
