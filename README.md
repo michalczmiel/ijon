@@ -1,6 +1,6 @@
 # ijon
 
-Zero dependency AI harness with bash tool written in Python. Sessions are stored in `~/.ijon/sessions` as JSONL files.
+Zero dependency AI harness with bash tool written in Python. Pass `--jsonl` to stream the session as JSONL on stdout; pipe it to a file if you want to keep it.
 
 This is a learning project should not be used for production work. Tested with OpenRouter API.
 
@@ -21,7 +21,7 @@ uv tool install git+https://github.com/michalczmiel/ijon
 ## Usage
 
 ```bash
-usage: ijon [-h] --model MODEL [--max-iterations MAX_ITERATIONS] prompt
+usage: ijon [-h] --model MODEL [--max-iterations MAX_ITERATIONS] [--jsonl] prompt
 
 Zero dependency AI harness with bash tool
 
@@ -32,7 +32,14 @@ options:
 -h, --help show this help message and exit
 --model MODEL
 --max-iterations MAX_ITERATIONS
+--jsonl                emit the session as JSONL on stdout (pipe to a file to save it)
 
+```
+
+With `--jsonl`, stdout carries only the JSONL session and human-readable logs go to stderr, so this stays a clean save:
+
+```bash
+ijon "your prompt" --model <model> --jsonl > session.jsonl
 ```
 
 ## Configure
@@ -41,5 +48,4 @@ Set via environment variables (not auto-loaded from `.env`):
 
 - `OPENAI_BASE_URL` (required)
 - `OPENAI_API_KEY`
-- `IJON_CONFIG_DIR` (default `~/.ijon`)
 - `IJON_BASH_TIMEOUT` (default `120`)

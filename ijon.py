@@ -2,9 +2,9 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 import urllib.error
 import urllib.request
-import uuid
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
@@ -24,10 +24,10 @@ def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
         return data, headers
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
-        print(f"HTTP {e.code} {e.reason}: {error_body}")
+        print(f"HTTP {e.code} {e.reason}: {error_body}", file=sys.stderr)
         return None
     except Exception as e:
-        print(e)
+        print(e, file=sys.stderr)
         return None
 
 
@@ -50,7 +50,6 @@ class OpenAICompatibleClient:
 
 @dataclass
 class Config:
-    config_dir: str
     openai_base_url: str
     openai_api_key: Optional[str] = None
     bash_timeout: int = 120
@@ -63,40 +62,30 @@ class Config:
 
         openai_api_key = os.environ.get("OPENAI_API_KEY")
 
-        config_dir = os.environ.get("IJON_CONFIG_DIR", "~/.ijon")
-        config_dir = os.path.expanduser(config_dir)
-
         bash_timeout = int(os.environ.get("IJON_BASH_TIMEOUT", "120"))
 
         return cls(
             openai_base_url=openai_base_url,
             openai_api_key=openai_api_key,
-            config_dir=config_dir,
             bash_timeout=bash_timeout,
         )
 
 
-class FileSessionStore:
-    def __init__(self, config_dir: str):
-        self.config_dir = config_dir
-        self.session_id = uuid.uuid4()
+class SessionWriter:
+    """Emit the session as JSONL to stdout when enabled, otherwise drop it."""
+
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
 
     def save_user(self, message: dict) -> None:
-        self._save({"type": "user", "message": message})
+        self._emit({"type": "user", "message": message})
 
     def save_completion(self, response: dict) -> None:
-        self._save({"type": "completion", "response": response})
+        self._emit({"type": "completion", "response": response})
 
-    def _save(self, response: dict) -> None:
-        sessions_dir = os.path.join(self.config_dir, "sessions")
-        os.makedirs(sessions_dir, exist_ok=True)
-
-        session_path = os.path.join(
-            sessions_dir,
-            f"{self.session_id}.jsonl",
-        )
-        with open(session_path, "a") as f:
-            f.write(json.dumps(response) + "\n")
+    def _emit(self, record: dict) -> None:
+        if self.enabled:
+            print(json.dumps(record), flush=True)
 
 
 class HttpMCPClient:
@@ -197,7 +186,7 @@ BASH_SCRIPT_TOOL_SCHEMA = {
 
 
 def execute_bash_script(script: str, timeout: int) -> str:
-    print(f"Executing bash script: {script}")
+    print(f"Executing bash script: {script}", file=sys.stderr)
     try:
         result = subprocess.run(
             script, shell=True, capture_output=True, text=True, timeout=timeout
@@ -223,7 +212,10 @@ def execute_tool_call(
     else:
         tool_name = tool_call["function"]["name"]
         if tool_name in mcp_tools_client_map:
-            print(f"executing MCP tool: {tool_name} with args {tool_args}")
+            print(
+                f"executing MCP tool: {tool_name} with args {tool_args}",
+                file=sys.stderr,
+            )
             mcp_tool_result = mcp_tools_client_map[tool_name].call_tool(
                 tool_name, tool_args
             )
@@ -251,6 +243,7 @@ class Arguments:
     prompt: str
     model: str
     max_iterations: int
+    jsonl: bool = False
 
     @classmethod
     def from_args(cls, argv: Optional[Sequence[str]] = None) -> "Arguments":
@@ -260,6 +253,11 @@ class Arguments:
         parser.add_argument("prompt", type=str)
         parser.add_argument("--model", type=str, required=True)
         parser.add_argument("--max-iterations", type=int, default=10)
+        parser.add_argument(
+            "--jsonl",
+            action="store_true",
+            help="emit the session as JSONL on stdout (pipe to a file to save it)",
+        )
 
         args = parser.parse_args(argv)
         return cls(**vars(args))
@@ -275,6 +273,10 @@ def run_agent(
     """
     Run the agent loop, handling tool calls and session storage.
     """
+    # In --jsonl mode stdout carries the JSONL session, so human-readable
+    # output goes to stderr to keep the pipe clean.
+    out = sys.stderr if args.jsonl else sys.stdout
+
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
@@ -315,7 +317,7 @@ def run_agent(
         )
 
         if not response:
-            print("error: failed to get response")
+            print("error: failed to get response", file=out)
             return
 
         session_store.save_completion(response)
@@ -323,11 +325,11 @@ def run_agent(
         try:
             message = response["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as e:
-            print(f"error: {e}, response: {json.dumps(response)}")
+            print(f"error: {e}, response: {json.dumps(response)}", file=out)
             return
 
         if message.get("content"):
-            print(message["content"])
+            print(message["content"], file=out)
 
         messages.append(message)
 
@@ -340,7 +342,7 @@ def run_agent(
                 execute_tool_call(tool_call, bash_timeout, mcp_tools_client_map)
             )
     else:
-        print(f"error: reached max iterations ({args.max_iterations})")
+        print(f"error: reached max iterations ({args.max_iterations})", file=out)
 
 
 def load_mcp_clients_from_config() -> list[HttpMCPClient]:
@@ -377,7 +379,7 @@ def main() -> None:
         return
 
     client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
-    session_store = FileSessionStore(config.config_dir)
+    session_store = SessionWriter(enabled=arguments.jsonl)
 
     run_agent(
         arguments, session_store, client, config.bash_timeout, mcp_clients=mcp_clients
