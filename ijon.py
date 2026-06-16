@@ -29,6 +29,9 @@ def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
         error_body = e.read().decode("utf-8")
         logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
         return None
+    except urllib.error.URLError as e:
+        logger.error("cannot connect to %s: %s", url, e.reason)
+        return None
     except Exception as e:
         logger.error("%s", e)
         return None
