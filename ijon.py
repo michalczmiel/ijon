@@ -246,11 +246,6 @@ def run_agent(
     """
     Run the agent loop, handling tool calls and session storage.
     """
-    # In --jsonl mode stdout carries the JSONL session, so the model's reply
-    # goes to stderr to keep the pipe clean. Diagnostics always go to stderr
-    # via the logger.
-    out = sys.stderr if args.jsonl else sys.stdout
-
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
@@ -305,7 +300,7 @@ def run_agent(
             return
 
         if message.get("content"):
-            print(message["content"], file=out)
+            logger.info("%s", message["content"])
 
         messages.append(message)
 

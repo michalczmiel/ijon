@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass
 
 import pytest
@@ -61,10 +62,11 @@ def run():
     return _run
 
 
-def test_shows_the_models_answer_to_the_user(run, capsys):
+def test_shows_the_models_answer_to_the_user(run, caplog):
+    caplog.set_level(logging.INFO, logger="ijon")
     run(FakeClient([message("the answer is 42")]))
 
-    assert "the answer is 42" in capsys.readouterr().out
+    assert "the answer is 42" in caplog.text
 
 
 def test_emits_the_whole_conversation_as_jsonl(run, capsys):
@@ -84,7 +86,7 @@ def test_survives_an_invalid_response(run, caplog):
     run(FakeClient([{"unexpected": "shape"}]))
 
     # No crash; the failure is logged for the user.
-    assert "response" in caplog.text.lower()
+    assert "response" in caplog.text
 
 
 def test_stops_instead_of_looping_forever(run, caplog):
@@ -94,4 +96,4 @@ def test_stops_instead_of_looping_forever(run, caplog):
     run(client, max_iterations=3)
 
     assert client.turns == 3
-    assert "max iterations" in caplog.text.lower()
+    assert "max iterations" in caplog.text
