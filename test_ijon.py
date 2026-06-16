@@ -94,18 +94,18 @@ def test_records_the_whole_conversation(run, store):
     assert store.saved[0]["message"] == {"role": "user", "content": "hi"}
 
 
-def test_survives_an_invalid_response(run, capsys):
+def test_survives_an_invalid_response(run, caplog):
     run(FakeClient([{"unexpected": "shape"}]))
 
-    # No crash; the user is told something went wrong.
-    assert "error" in capsys.readouterr().out.lower()
+    # No crash; the failure is logged for the user.
+    assert "response" in caplog.text.lower()
 
 
-def test_stops_instead_of_looping_forever(run, capsys):
+def test_stops_instead_of_looping_forever(run, caplog):
     # A model stuck always asking for another command must still terminate.
     client = FakeClient([tool("echo loop") for _ in range(10)])
 
     run(client, max_iterations=3)
 
     assert client.turns == 3
-    assert "max iterations" in capsys.readouterr().out.lower()
+    assert "max iterations" in caplog.text.lower()

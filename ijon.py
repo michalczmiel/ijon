@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -7,6 +8,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Optional, Sequence
+
+logger = logging.getLogger("ijon")
 
 
 def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
@@ -24,10 +27,10 @@ def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
         return data, headers
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
-        print(f"HTTP {e.code} {e.reason}: {error_body}", file=sys.stderr)
+        logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
         return None
     except Exception as e:
-        print(e, file=sys.stderr)
+        logger.error("%s", e)
         return None
 
 
@@ -186,7 +189,7 @@ BASH_SCRIPT_TOOL_SCHEMA = {
 
 
 def execute_bash_script(script: str, timeout: int) -> str:
-    print(f"Executing bash script: {script}", file=sys.stderr)
+    logger.info("Executing bash script: %s", script)
     try:
         result = subprocess.run(
             script, shell=True, capture_output=True, text=True, timeout=timeout
@@ -212,10 +215,7 @@ def execute_tool_call(
     else:
         tool_name = tool_call["function"]["name"]
         if tool_name in mcp_tools_client_map:
-            print(
-                f"executing MCP tool: {tool_name} with args {tool_args}",
-                file=sys.stderr,
-            )
+            logger.info("executing MCP tool: %s with args %s", tool_name, tool_args)
             mcp_tool_result = mcp_tools_client_map[tool_name].call_tool(
                 tool_name, tool_args
             )
@@ -273,8 +273,9 @@ def run_agent(
     """
     Run the agent loop, handling tool calls and session storage.
     """
-    # In --jsonl mode stdout carries the JSONL session, so human-readable
-    # output goes to stderr to keep the pipe clean.
+    # In --jsonl mode stdout carries the JSONL session, so the model's reply
+    # goes to stderr to keep the pipe clean. Diagnostics always go to stderr
+    # via the logger.
     out = sys.stderr if args.jsonl else sys.stdout
 
     iteration_count = 0
@@ -317,7 +318,7 @@ def run_agent(
         )
 
         if not response:
-            print("error: failed to get response", file=out)
+            logger.error("failed to get response")
             return
 
         session_store.save_completion(response)
@@ -325,7 +326,7 @@ def run_agent(
         try:
             message = response["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as e:
-            print(f"error: {e}, response: {json.dumps(response)}", file=out)
+            logger.error("%s, response: %s", e, json.dumps(response))
             return
 
         if message.get("content"):
@@ -342,7 +343,7 @@ def run_agent(
                 execute_tool_call(tool_call, bash_timeout, mcp_tools_client_map)
             )
     else:
-        print(f"error: reached max iterations ({args.max_iterations})", file=out)
+        logger.error("reached max iterations (%s)", args.max_iterations)
 
 
 def load_mcp_clients_from_config() -> list[HttpMCPClient]:
@@ -353,10 +354,10 @@ def load_mcp_clients_from_config() -> list[HttpMCPClient]:
     except FileNotFoundError:
         return []
     except json.JSONDecodeError as e:
-        print(f"error: malformed {file_name}: {e}")
+        logger.error("malformed %s: %s", file_name, e)
         return []
     except Exception as e:
-        print(f"error: unexpected error while loading {file_name}: {e}")
+        logger.error("unexpected error while loading %s: %s", file_name, e)
         return []
 
     if "mcpServers" not in data:
@@ -369,13 +370,15 @@ def load_mcp_clients_from_config() -> list[HttpMCPClient]:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
+
     arguments = Arguments.from_args()
     mcp_clients = load_mcp_clients_from_config()
 
     try:
         config = Config.from_env()
     except ValueError as e:
-        print(e)
+        logger.error("%s", e)
         return
 
     client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
