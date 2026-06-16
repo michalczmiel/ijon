@@ -74,23 +74,6 @@ class Config:
         )
 
 
-class SessionWriter:
-    """Emit the session as JSONL to stdout when enabled, otherwise drop it."""
-
-    def __init__(self, enabled: bool):
-        self.enabled = enabled
-
-    def save_user(self, message: dict) -> None:
-        self._emit({"type": "user", "message": message})
-
-    def save_completion(self, response: dict) -> None:
-        self._emit({"type": "completion", "response": response})
-
-    def _emit(self, record: dict) -> None:
-        if self.enabled:
-            print(json.dumps(record), flush=True)
-
-
 class HttpMCPClient:
     def __init__(self, url: str, headers: Optional[dict[str, str]] = None):
         self.url = url
@@ -265,7 +248,6 @@ class Arguments:
 
 def run_agent(
     args: Arguments,
-    session_store: FileSessionStore,
     client: OpenAICompatibleClient,
     bash_timeout: int,
     mcp_clients: Optional[list[HttpMCPClient]] = None,
@@ -281,7 +263,8 @@ def run_agent(
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
-    session_store.save_user(messages[0])
+    if args.jsonl:
+        print(json.dumps({"type": "user", "message": messages[0]}), flush=True)
 
     mcp_tools_client_map = {}
 
@@ -321,7 +304,8 @@ def run_agent(
             logger.error("failed to get response")
             return
 
-        session_store.save_completion(response)
+        if args.jsonl:
+            print(json.dumps({"type": "completion", "response": response}), flush=True)
 
         try:
             message = response["choices"][0]["message"]
@@ -382,11 +366,8 @@ def main() -> None:
         return
 
     client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
-    session_store = SessionWriter(enabled=arguments.jsonl)
 
-    run_agent(
-        arguments, session_store, client, config.bash_timeout, mcp_clients=mcp_clients
-    )
+    run_agent(arguments, client, config.bash_timeout, mcp_clients=mcp_clients)
 
 
 if __name__ == "__main__":

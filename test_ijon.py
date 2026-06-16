@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pytest
 
@@ -16,19 +16,6 @@ class FakeClient:
     def chat_completions(self, body: dict):
         self.turns += 1
         return self.responses.pop(0)
-
-
-@dataclass
-class FakeStore:
-    """Records the conversation the way the real store persists it."""
-
-    saved: list = field(default_factory=list)
-
-    def save_user(self, message: dict) -> None:
-        self.saved.append({"type": "user", "message": message})
-
-    def save_completion(self, response: dict) -> None:
-        self.saved.append({"type": "completion", "response": response})
 
 
 def message(content: str) -> dict:
@@ -59,19 +46,17 @@ def tool(script: str) -> dict:
 
 
 @pytest.fixture
-def store():
-    return FakeStore()
-
-
-@pytest.fixture
-def run(store):
+def run():
     """Drive run_agent with sensible defaults; pass the scripted client in."""
 
-    def _run(client, *, prompt="hi", max_iterations=10, bash_timeout=5):
+    def _run(client, *, prompt="hi", max_iterations=10, bash_timeout=5, jsonl=False):
         args = Arguments(
-            prompt=prompt, model="test-model", max_iterations=max_iterations
+            prompt=prompt,
+            model="test-model",
+            max_iterations=max_iterations,
+            jsonl=jsonl,
         )
-        run_agent(args, store, client, bash_timeout=bash_timeout)
+        run_agent(args, client, bash_timeout=bash_timeout)
 
     return _run
 
@@ -82,16 +67,17 @@ def test_shows_the_models_answer_to_the_user(run, capsys):
     assert "the answer is 42" in capsys.readouterr().out
 
 
-def test_records_the_whole_conversation(run, store):
-    run(FakeClient([tool("echo hi"), message("done")]), prompt="hi")
+def test_emits_the_whole_conversation_as_jsonl(run, capsys):
+    tool_response = tool("echo hi")
+    final_response = message("done")
+    run(FakeClient([tool_response, final_response]), prompt="hi", jsonl=True)
 
-    # The user prompt plus every backend response is persisted so the session can be replayed.
-    assert [entry["type"] for entry in store.saved] == [
-        "user",
-        "completion",
-        "completion",
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert records == [
+        {"type": "user", "message": {"role": "user", "content": "hi"}},
+        {"type": "completion", "response": tool_response},
+        {"type": "completion", "response": final_response},
     ]
-    assert store.saved[0]["message"] == {"role": "user", "content": "hi"}
 
 
 def test_survives_an_invalid_response(run, caplog):
