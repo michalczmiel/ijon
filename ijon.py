@@ -85,11 +85,31 @@ class HttpMCPClient:
             "Content-Type": "application/json",
             **(headers or {}),
         }
+        self._id = 0
+
+    def _next_id(self) -> int:
+        # MCP requires ids to be non-null and unique within a session.
+        self._id += 1
+        return self._id
+
+    def _send(self, method: str, params: Optional[dict] = None) -> Optional[dict]:
+        body = {"jsonrpc": "2.0", "id": self._next_id(), "method": method}
+        if params is not None:
+            body["params"] = params
+
+        response = request(self.url, self.headers, body)
+        if not response:
+            return None
+        data, _ = response
+        parsed = self._extract_sse_data(data)
+        if not parsed:
+            return None
+        return parsed.get("result")
 
     def connect(self) -> bool:
         body = {
             "jsonrpc": "2.0",
-            "id": 1,
+            "id": self._next_id(),
             "method": "initialize",
             "params": {
                 "protocolVersion": "2025-06-18",
@@ -116,43 +136,11 @@ class HttpMCPClient:
                 return json.loads(line[5:])
 
     def list_tools(self) -> list[dict]:
-        body = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/list",
-        }
-        response = request(self.url, self.headers, body)
-        if not response:
-            return []
-
-        data, _ = response
-
-        parsed = self._extract_sse_data(data)
-        if not parsed:
-            return []
-
-        result = parsed.get("result", {})
-        return result.get("tools", [])
+        result = self._send("tools/list")
+        return result.get("tools", []) if result else []
 
     def call_tool(self, name: str, arguments: dict) -> Optional[dict]:
-        body = {
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {
-                "name": name,
-                "arguments": arguments,
-            },
-        }
-
-        response = request(self.url, self.headers, body)
-        if not response:
-            return None
-        data, _ = response
-        parsed = self._extract_sse_data(data)
-        if not parsed:
-            return None
-        return parsed.get("result")
+        return self._send("tools/call", {"name": name, "arguments": arguments})
 
 
 BASH_SCRIPT_TOOL_SCHEMA = {
