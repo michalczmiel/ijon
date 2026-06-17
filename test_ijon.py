@@ -50,14 +50,22 @@ def tool(script: str) -> dict:
 def run():
     """Drive run_agent with sensible defaults; pass the scripted client in."""
 
-    def _run(client, *, prompt="hi", max_iterations=10, bash_timeout=5, jsonl=False):
+    def _run(client, *, prompt="hi", max_iterations=10, jsonl=False):
         args = Arguments(
             prompt=prompt,
             model="test-model",
             max_iterations=max_iterations,
             jsonl=jsonl,
         )
-        run_agent(args, client, bash_timeout=bash_timeout)
+        tools = [
+            {
+                "name": "execute_bash_script",
+                "description": "a fake tool",
+                "parameters": {},
+                "execute": lambda args: "fake output",
+            }
+        ]
+        run_agent(args, client, tools)
 
     return _run
 

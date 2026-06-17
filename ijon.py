@@ -143,27 +143,7 @@ class HttpMCPClient:
         return self._send("tools/call", {"name": name, "arguments": arguments})
 
 
-BASH_SCRIPT_TOOL_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "execute_bash_script",
-        "description": "Execute a bash script and return the output",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "script": {
-                    "type": "string",
-                    "description": "The bash script to execute",
-                }
-            },
-            "required": ["script"],
-        },
-    },
-}
-
-
 def execute_bash_script(script: str, timeout: int) -> str:
-    logger.info("Executing bash script: %s", script)
     try:
         result = subprocess.run(
             script, shell=True, capture_output=True, text=True, timeout=timeout
@@ -178,9 +158,7 @@ def execute_bash_script(script: str, timeout: int) -> str:
         return f"error: Bash script timed out after {timeout} seconds"
 
 
-def execute_tool_call(
-    tool_call: dict, bash_timeout: int, mcp_tools_client_map: dict
-) -> dict:
+def execute_tool_call(tool_call: dict, tools: list[dict]) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
     try:
         tool_args = json.loads(tool_call["function"]["arguments"])
@@ -188,22 +166,13 @@ def execute_tool_call(
         result = f"error: invalid tool arguments JSON: {e}"
     else:
         tool_name = tool_call["function"]["name"]
-        if tool_name in mcp_tools_client_map:
-            logger.info("executing MCP tool: %s with args %s", tool_name, tool_args)
-            mcp_tool_result = mcp_tools_client_map[tool_name].call_tool(
-                tool_name, tool_args
-            )
-            result = (
-                mcp_tool_result
-                if mcp_tool_result is not None
-                else "error: tool call failed"
-            )
-        elif tool_name != BASH_SCRIPT_TOOL_SCHEMA["function"]["name"]:
+        tool = next((t for t in tools if t["name"] == tool_name), None)
+
+        if tool is None:
             result = f"error: unknown tool '{tool_name}'"
-        elif not isinstance(tool_args, dict) or "script" not in tool_args:
-            result = "error: missing required argument 'script'"
         else:
-            result = execute_bash_script(tool_args["script"], bash_timeout)
+            logger.info("executing tool: %s with args %s", tool_name, tool_args)
+            result = tool["execute"](tool_args)
 
     return {
         "role": "tool",
@@ -240,8 +209,7 @@ class Arguments:
 def run_agent(
     args: Arguments,
     client: OpenAICompatibleClient,
-    bash_timeout: int,
-    mcp_clients: Optional[list[HttpMCPClient]] = None,
+    tools: list[dict],
 ) -> None:
     """
     Run the agent loop, handling tool calls and session storage.
@@ -249,31 +217,20 @@ def run_agent(
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
+    tool_schemas = [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["parameters"],
+            },
+        }
+        for tool in tools
+    ]
+
     if args.jsonl:
         print(json.dumps({"type": "user", "message": messages[0]}), flush=True)
-
-    mcp_tools_client_map = {}
-
-    tools = [BASH_SCRIPT_TOOL_SCHEMA]
-    if mcp_clients:
-        for mcp_client in mcp_clients:
-            connected = mcp_client.connect()
-            if not connected:
-                continue
-            mcp_tools = mcp_client.list_tools()
-            for mcp_tool in mcp_tools:
-                mcp_tool_name = mcp_tool["name"]
-                mcp_tools_client_map[mcp_tool_name] = mcp_client
-                tools.append(
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": mcp_tool["name"],
-                            "description": mcp_tool["description"],
-                            "parameters": mcp_tool["inputSchema"],
-                        },
-                    }
-                )
 
     while iteration_count < args.max_iterations:
         iteration_count += 1
@@ -282,7 +239,7 @@ def run_agent(
             {
                 "model": args.model,
                 "messages": messages,
-                "tools": tools,
+                "tools": tool_schemas,
             }
         )
 
@@ -309,9 +266,7 @@ def run_agent(
             break
 
         for tool_call in tool_calls:
-            messages.append(
-                execute_tool_call(tool_call, bash_timeout, mcp_tools_client_map)
-            )
+            messages.append(execute_tool_call(tool_call, tools))
     else:
         logger.error("reached max iterations (%s)", args.max_iterations)
 
@@ -330,12 +285,9 @@ def load_mcp_clients_from_config() -> list[HttpMCPClient]:
         logger.error("unexpected error while loading %s: %s", file_name, e)
         return []
 
-    if "mcpServers" not in data:
-        return []
-
     return [
         HttpMCPClient(server["url"], server.get("headers"))
-        for server in data["mcpServers"].values()
+        for server in data.get("mcpServers", {}).values()
     ]
 
 
@@ -343,7 +295,6 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 
     arguments = Arguments.from_args()
-    mcp_clients = load_mcp_clients_from_config()
 
     try:
         config = Config.from_env()
@@ -351,9 +302,53 @@ def main() -> None:
         logger.error("%s", e)
         return
 
+    tools = [
+        {
+            "name": "execute_bash_script",
+            "description": "Execute a bash script and return the output",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "script": {
+                        "type": "string",
+                        "description": "The bash script to execute",
+                    }
+                },
+                "required": ["script"],
+            },
+            "execute": lambda args: execute_bash_script(
+                args["script"], timeout=config.bash_timeout
+            ),
+        }
+    ]
+
+    mcp_clients = load_mcp_clients_from_config()
+    for mcp_client in mcp_clients:
+        connected = mcp_client.connect()
+        if not connected:
+            continue
+        mcp_tools = mcp_client.list_tools()
+
+        for mcp_tool in mcp_tools:
+            name = mcp_tool["name"]
+            tools.append(
+                {
+                    "name": name,
+                    "description": mcp_tool["description"],
+                    "parameters": mcp_tool["inputSchema"],
+                    "execute": lambda args, client=mcp_client, name=name: (
+                        client.call_tool(name, args)
+                    ),
+                }
+            )
+
     client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
 
-    run_agent(arguments, client, config.bash_timeout, mcp_clients=mcp_clients)
+    run_agent(
+        arguments,
+        client,
+        tools,
+    )
 
 
 if __name__ == "__main__":
