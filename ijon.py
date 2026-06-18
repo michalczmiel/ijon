@@ -192,7 +192,8 @@ class Arguments:
     @classmethod
     def from_args(cls, argv: Optional[Sequence[str]] = None) -> "Arguments":
         parser = argparse.ArgumentParser(
-            prog="ijon", description="Zero dependency AI harness with bash tool"
+            prog="ijon",
+            description="Single-file zero-dependency AI harness",
         )
 
         parser.add_argument("prompt", type=str)
