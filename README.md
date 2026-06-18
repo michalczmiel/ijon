@@ -77,6 +77,8 @@ Drop a `.mcp.json` next to where you run `ijon` and pass `--mcp` to enable it. E
 
 `headers` is optional. Only the HTTP transport is supported. `url` and `headers` values expand `${VAR}` and `${VAR:-default}` from the environment, so you can keep secrets out of the file.
 
+Auth is static-token only (whatever you put in `headers`); the interactive OAuth flow is not supported, but both stateful and stateless servers work.
+
 ## Skills
 
 Pass `--skills` to load skills from `.agents/skills` next to where you run `ijon`. Each skill is a `<name>/SKILL.md` file; they're exposed to the model as a single `skill` tool it can call to pull a skill's instructions into context on demand.

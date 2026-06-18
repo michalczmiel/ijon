@@ -30,6 +30,15 @@ def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
         logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
+        if e.code == 401:
+            # MCP's OAuth flow starts here, but ijon only does static-token auth.
+            challenge = e.headers.get("WWW-Authenticate")
+            logger.error(
+                "401 unauthorized for %s: ijon only supports static tokens "
+                "(set them in .mcp.json headers). WWW-Authenticate: %s",
+                url,
+                challenge or "<none>",
+            )
         return None
     except urllib.error.URLError as e:
         logger.error("cannot connect to %s: %s", url, e.reason)
@@ -123,11 +132,11 @@ class HttpMCPClient:
         if not response:
             return False
         _, headers = response
+        # Session ids are optional: stateful servers issue one to carry on the
+        # session, stateless ones omit it. Only echo it back when present.
         session_id = headers.get("mcp-session-id")
-        if not session_id:
-            return False
-
-        self.headers["mcp-session-id"] = session_id
+        if session_id:
+            self.headers["mcp-session-id"] = session_id
 
         return True
 
