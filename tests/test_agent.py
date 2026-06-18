@@ -1,6 +1,6 @@
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -13,9 +13,11 @@ class FakeClient:
 
     responses: list
     turns: int = 0
+    bodies: list = field(default_factory=list)
 
     def chat_completions(self, body: dict):
         self.turns += 1
+        self.bodies.append(body)
         return self.responses.pop(0)
 
 
@@ -88,6 +90,17 @@ def test_emits_the_whole_conversation_as_jsonl(run, capsys):
         {"type": "completion", "response": tool_response},
         {"type": "completion", "response": final_response},
     ]
+
+
+def test_feeds_the_tool_result_back_to_the_model(run):
+    client = FakeClient([tool("echo hi"), message("done")])
+    run(client)
+
+    # The model must receive the tool's output back, tagged to its call.
+    messages = client.bodies[1]["messages"]
+    tool_msg = next(m for m in messages if m["role"] == "tool")
+    assert tool_msg["tool_call_id"] == "call_1"
+    assert "fake output" in tool_msg["content"]
 
 
 def test_survives_an_invalid_response(run, caplog):
