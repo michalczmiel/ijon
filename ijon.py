@@ -383,9 +383,12 @@ def make_skill_tool(skills: list[dict]) -> dict:
     available = "\n".join(f"- {s['name']}: {s['description']}" for s in skills)
 
     def execute(args: dict) -> str:
-        skill = by_name.get(args.get("name"))
+        name = args.get("name")
+        if name is None:
+            return "error: no skill name provided"
+        skill = by_name.get(name)
         if skill is None:
-            return f"error: unknown skill '{args.get('name')}'"
+            return f"error: unknown skill '{name}'"
         return skill["content"]
 
     return {

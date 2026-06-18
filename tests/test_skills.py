@@ -77,6 +77,12 @@ def test_skill_tool_loads_content():
     assert tool["execute"]({"name": "alpha"}) == "alpha body"
 
 
+def test_skill_tool_reports_missing_name():
+    tool = make_skill_tool([])
+
+    assert "no skill name provided" in tool["execute"]({})
+
+
 def test_skill_tool_reports_unknown_skill():
     tool = make_skill_tool([])
 
