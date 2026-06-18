@@ -188,6 +188,7 @@ class Arguments:
     max_iterations: int
     jsonl: bool = False
     bash: bool = False
+    mcp: bool = False
 
     @classmethod
     def from_args(cls, argv: Optional[Sequence[str]] = None) -> "Arguments":
@@ -199,6 +200,11 @@ class Arguments:
         parser.add_argument("prompt", type=str)
         parser.add_argument("--model", type=str, required=True)
         parser.add_argument("--bash", action="store_true", help="enable the bash tool")
+        parser.add_argument(
+            "--mcp",
+            action="store_true",
+            help="enable MCP tools from .mcp.json in the current directory",
+        )
         parser.add_argument("--max-iterations", type=int, default=10)
         parser.add_argument(
             "--jsonl",
@@ -329,7 +335,7 @@ def main() -> None:
             }
         )
 
-    mcp_clients = load_mcp_clients_from_config()
+    mcp_clients = load_mcp_clients_from_config() if arguments.mcp else []
     for mcp_client in mcp_clients:
         connected = mcp_client.connect()
         if not connected:
