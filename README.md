@@ -75,7 +75,7 @@ Drop a `.mcp.json` next to where you run `ijon` and pass `--mcp` to enable it. E
 }
 ```
 
-`headers` is optional. Only the HTTP transport is supported.
+`headers` is optional. Only the HTTP transport is supported. `url` and `headers` values expand `${VAR}` and `${VAR:-default}` from the environment, so you can keep secrets out of the file.
 
 ## Skills
 

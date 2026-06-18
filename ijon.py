@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -307,6 +308,31 @@ def run_agent(
         logger.error("reached max iterations (%s)", args.max_iterations)
 
 
+# ${VAR} and ${VAR:-default}. stdlib os.path.expandvars lacks the :- default
+# syntax, so we roll our own to match the .mcp.json convention used by Claude
+# Code, Cursor and VS Code.
+_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def expand_env_vars(value: str) -> str:
+    """Expand ${VAR} / ${VAR:-default} references against the environment.
+
+    An unset variable without a default expands to an empty string.
+    """
+
+    def replace(match: re.Match) -> str:
+        name, default = match.group(1), match.group(2)
+        env_value = os.environ.get(name)
+        if env_value is not None:
+            return env_value
+        if default is not None:
+            return default
+        logger.warning("env var %s referenced in .mcp.json is unset", name)
+        return ""
+
+    return _ENV_VAR_RE.sub(replace, value)
+
+
 def load_mcp_clients_from_config() -> list[HttpMCPClient]:
     file_name = ".mcp.json"
     try:
@@ -321,10 +347,14 @@ def load_mcp_clients_from_config() -> list[HttpMCPClient]:
         logger.error("unexpected error while loading %s: %s", file_name, e)
         return []
 
-    return [
-        HttpMCPClient(server["url"], server.get("headers"))
-        for server in data.get("mcpServers", {}).values()
-    ]
+    clients = []
+    for server in data.get("mcpServers", {}).values():
+        url = expand_env_vars(server["url"])
+        headers = server.get("headers")
+        if headers is not None:
+            headers = {k: expand_env_vars(v) for k, v in headers.items()}
+        clients.append(HttpMCPClient(url, headers))
+    return clients
 
 
 @dataclass(frozen=True)
