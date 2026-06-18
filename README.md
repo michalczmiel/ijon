@@ -7,6 +7,7 @@ A single-file zero-dependency agent harness written in Python.
 - No sessions, no history
 - Built-in bash tool
 - Built-in HTTP MCP support
+- Built-in skills support
 
 A learning project, not for production. Tested with the OpenRouter API.
 
@@ -27,7 +28,7 @@ python ijon.py "your prompt" --model <model>
 ## Usage
 
 ```bash
-usage: ijon [-h] --model MODEL [--bash] [--mcp] [--max-iterations MAX_ITERATIONS] [--jsonl] prompt
+usage: ijon [-h] --model MODEL [--bash] [--mcp] [--skills] [--max-iterations MAX_ITERATIONS] [--jsonl] prompt
 ```
 
 | Option               | Description                              |
@@ -35,6 +36,7 @@ usage: ijon [-h] --model MODEL [--bash] [--mcp] [--max-iterations MAX_ITERATIONS
 | `--model MODEL`      | Model id to use (required)               |
 | `--bash`             | Enable the bash tool                     |
 | `--mcp`              | Enable MCP tools from `.mcp.json`        |
+| `--skills`           | Enable skills from `.agents/skills`      |
 | `--max-iterations N` | Max agent loop iterations (default `10`) |
 | `--jsonl`            | Emit the session as JSONL on stdout      |
 
@@ -74,3 +76,7 @@ Drop a `.mcp.json` next to where you run `ijon` and pass `--mcp` to enable it. E
 ```
 
 `headers` is optional. Only the HTTP transport is supported.
+
+## Skills
+
+Pass `--skills` to load skills from `.agents/skills` next to where you run `ijon`. Each skill is a `<name>/SKILL.md` file; they're exposed to the model as a single `skill` tool it can call to pull a skill's instructions into context on demand.

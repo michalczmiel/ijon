@@ -7,6 +7,7 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Sequence
 
 logger = logging.getLogger("ijon")
@@ -158,6 +159,25 @@ def execute_bash_script(script: str, timeout: int) -> str:
         return f"error: Bash script timed out after {timeout} seconds"
 
 
+def make_bash_tool(timeout: int) -> dict:
+    """Expose bash script execution as a tool."""
+    return {
+        "name": "execute_bash_script",
+        "description": "Execute a bash script and return the output",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "description": "The bash script to execute",
+                }
+            },
+            "required": ["script"],
+        },
+        "execute": lambda args: execute_bash_script(args["script"], timeout=timeout),
+    }
+
+
 def execute_tool_call(tool_call: dict, tools: list[dict]) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
     try:
@@ -189,6 +209,7 @@ class Arguments:
     jsonl: bool = False
     bash: bool = False
     mcp: bool = False
+    skills: bool = False
 
     @classmethod
     def from_args(cls, argv: Optional[Sequence[str]] = None) -> "Arguments":
@@ -204,6 +225,11 @@ class Arguments:
             "--mcp",
             action="store_true",
             help="enable MCP tools from .mcp.json in the current directory",
+        )
+        parser.add_argument(
+            "--skills",
+            action="store_true",
+            help="enable skills loaded from .agents/skills in the current directory",
         )
         parser.add_argument("--max-iterations", type=int, default=10)
         parser.add_argument(
@@ -301,6 +327,87 @@ def load_mcp_clients_from_config() -> list[HttpMCPClient]:
     ]
 
 
+def parse_skill_metadata(content: str, default_name: str) -> tuple[str, str]:
+    """Pull name/description from optional YAML frontmatter, with fallbacks."""
+    name = default_name
+    description = ""
+    body = content
+
+    if content.startswith("---"):
+        end = content.find("\n---", 3)
+        if end != -1:
+            frontmatter = content[3:end]
+            body = content[end + 4 :]
+            for line in frontmatter.splitlines():
+                key, sep, value = line.partition(":")
+                if not sep:
+                    continue
+                key = key.strip().lower()
+                value = value.strip()
+                if key == "name" and value:
+                    name = value
+                elif key == "description" and value:
+                    description = value
+
+    if not description:
+        for line in body.splitlines():
+            line = line.strip().lstrip("#").strip()
+            if line:
+                description = line
+                break
+
+    return name, description
+
+
+def load_skills_from_directory(directory: str = ".agents/skills") -> list[dict]:
+    """Discover skills stored as <directory>/<name>/SKILL.md."""
+    skills = []
+    for skill_file in sorted(Path(directory).glob("*/SKILL.md")):
+        try:
+            content = skill_file.read_text()
+        except OSError as e:
+            logger.error("cannot read %s: %s", skill_file, e)
+            continue
+
+        name, description = parse_skill_metadata(
+            content, default_name=skill_file.parent.name
+        )
+        skills.append({"name": name, "description": description, "content": content})
+
+    return skills
+
+
+def make_skill_tool(skills: list[dict]) -> dict:
+    """Expose discovered skills as a single tool that loads a skill into context."""
+    by_name = {skill["name"]: skill for skill in skills}
+    available = "\n".join(f"- {s['name']}: {s['description']}" for s in skills)
+
+    def execute(args: dict) -> str:
+        skill = by_name.get(args.get("name"))
+        if skill is None:
+            return f"error: unknown skill '{args.get('name')}'"
+        return skill["content"]
+
+    return {
+        "name": "skill",
+        "description": (
+            "Load a skill's instructions into context. Available skills:\n" + available
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "enum": list(by_name.keys()),
+                    "description": "The name of the skill to load",
+                }
+            },
+            "required": ["name"],
+        },
+        "execute": execute,
+    }
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 
@@ -315,25 +422,7 @@ def main() -> None:
     tools = []
 
     if arguments.bash:
-        tools.append(
-            {
-                "name": "execute_bash_script",
-                "description": "Execute a bash script and return the output",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "script": {
-                            "type": "string",
-                            "description": "The bash script to execute",
-                        }
-                    },
-                    "required": ["script"],
-                },
-                "execute": lambda args: execute_bash_script(
-                    args["script"], timeout=config.bash_timeout
-                ),
-            }
-        )
+        tools.append(make_bash_tool(config.bash_timeout))
 
     mcp_clients = load_mcp_clients_from_config() if arguments.mcp else []
     for mcp_client in mcp_clients:
@@ -354,6 +443,11 @@ def main() -> None:
                     ),
                 }
             )
+
+    if arguments.skills:
+        skills = load_skills_from_directory()
+        if skills:
+            tools.append(make_skill_tool(skills))
 
     client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
 

@@ -19,3 +19,11 @@ def test_mcp_disabled_by_default():
 
 def test_mcp_flag_enables_the_tool():
     assert parse("--mcp").mcp is True
+
+
+def test_skills_disabled_by_default():
+    assert parse().skills is False
+
+
+def test_skills_flag_enables_the_tool():
+    assert parse("--skills").skills is True
