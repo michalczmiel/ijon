@@ -327,39 +327,46 @@ def load_mcp_clients_from_config() -> list[HttpMCPClient]:
     ]
 
 
-def parse_skill_metadata(content: str, default_name: str) -> tuple[str, str]:
-    """Pull name/description from optional YAML frontmatter, with fallbacks."""
-    name = default_name
-    description = ""
-    body = content
+@dataclass(frozen=True)
+class Skill:
+    name: str
+    description: str
+    content: str
 
-    if content.startswith("---"):
-        end = content.find("\n---", 3)
-        if end != -1:
-            frontmatter = content[3:end]
-            body = content[end + 4 :]
-            for line in frontmatter.splitlines():
-                key, sep, value = line.partition(":")
-                if not sep:
-                    continue
-                key = key.strip().lower()
-                value = value.strip()
-                if key == "name" and value:
-                    name = value
-                elif key == "description" and value:
-                    description = value
+    @classmethod
+    def from_text(cls, content: str, default_name: str) -> "Skill":
+        """Build a skill, reading name/description from optional YAML frontmatter."""
+        name = default_name
+        description = ""
+        body = content
 
-    if not description:
-        for line in body.splitlines():
-            line = line.strip().lstrip("#").strip()
-            if line:
-                description = line
-                break
+        if content.startswith("---"):
+            end = content.find("\n---", 3)
+            if end != -1:
+                frontmatter = content[3:end]
+                body = content[end + 4 :]
+                for line in frontmatter.splitlines():
+                    key, sep, value = line.partition(":")
+                    if not sep:
+                        continue
+                    key = key.strip().lower()
+                    value = value.strip()
+                    if key == "name" and value:
+                        name = value
+                    elif key == "description" and value:
+                        description = value
 
-    return name, description
+        if not description:
+            for line in body.splitlines():
+                line = line.strip().lstrip("#").strip()
+                if line:
+                    description = line
+                    break
+
+        return cls(name=name, description=description, content=content)
 
 
-def load_skills_from_directory(directory: str = ".agents/skills") -> list[dict]:
+def load_skills_from_directory(directory: str = ".agents/skills") -> list[Skill]:
     """Discover skills stored as <directory>/<name>/SKILL.md."""
     skills = []
     for skill_file in sorted(Path(directory).glob("*/SKILL.md")):
@@ -369,18 +376,15 @@ def load_skills_from_directory(directory: str = ".agents/skills") -> list[dict]:
             logger.error("cannot read %s: %s", skill_file, e)
             continue
 
-        name, description = parse_skill_metadata(
-            content, default_name=skill_file.parent.name
-        )
-        skills.append({"name": name, "description": description, "content": content})
+        skills.append(Skill.from_text(content, default_name=skill_file.parent.name))
 
     return skills
 
 
-def make_skill_tool(skills: list[dict]) -> dict:
+def make_skill_tool(skills: list[Skill]) -> dict:
     """Expose discovered skills as a single tool that loads a skill into context."""
-    by_name = {skill["name"]: skill for skill in skills}
-    available = "\n".join(f"- {s['name']}: {s['description']}" for s in skills)
+    by_name = {skill.name: skill for skill in skills}
+    available = "\n".join(f"- {s.name}: {s.description}" for s in skills)
 
     def execute(args: dict) -> str:
         name = args.get("name")
@@ -389,7 +393,7 @@ def make_skill_tool(skills: list[dict]) -> dict:
         skill = by_name.get(name)
         if skill is None:
             return f"error: unknown skill '{name}'"
-        return skill["content"]
+        return skill.content
 
     return {
         "name": "skill",

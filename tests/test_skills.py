@@ -1,7 +1,7 @@
 from ijon import (
+    Skill,
     load_skills_from_directory,
     make_skill_tool,
-    parse_skill_metadata,
 )
 
 
@@ -21,8 +21,8 @@ def test_discovers_skills_and_skips_dirs_without_skill_md(tmp_path):
 
     skills = load_skills_from_directory(str(tmp_path))
 
-    assert [s["name"] for s in skills] == ["alpha"]
-    assert skills[0]["content"] == "# Alpha\n\nbody"
+    assert [s.name for s in skills] == ["alpha"]
+    assert skills[0].content == "# Alpha\n\nbody"
 
 
 def test_discovers_multiple_skills_sorted_by_name(tmp_path):
@@ -32,36 +32,36 @@ def test_discovers_multiple_skills_sorted_by_name(tmp_path):
 
     skills = load_skills_from_directory(str(tmp_path))
 
-    assert [s["name"] for s in skills] == ["alpha", "beta", "gamma"]
+    assert [s.name for s in skills] == ["alpha", "beta", "gamma"]
 
 
 def test_metadata_falls_back_to_dir_name_and_first_heading():
-    name, description = parse_skill_metadata("# Secret Number\n\nrest", "secret-number")
+    skill = Skill.from_text("# Secret Number\n\nrest", "secret-number")
 
-    assert name == "secret-number"
-    assert description == "Secret Number"
+    assert skill.name == "secret-number"
+    assert skill.description == "Secret Number"
 
 
 def test_metadata_reads_frontmatter():
     content = "---\nname: Cool Skill\ndescription: does cool things\n---\n# Heading"
 
-    name, description = parse_skill_metadata(content, "dir-name")
+    skill = Skill.from_text(content, "dir-name")
 
-    assert name == "Cool Skill"
-    assert description == "does cool things"
+    assert skill.name == "Cool Skill"
+    assert skill.description == "does cool things"
 
 
 def test_metadata_frontmatter_name_only_falls_back_to_heading():
     content = "---\nname: Cool Skill\n---\n# Heading Desc\n\nbody"
 
-    name, description = parse_skill_metadata(content, "dir-name")
+    skill = Skill.from_text(content, "dir-name")
 
-    assert name == "Cool Skill"
-    assert description == "Heading Desc"
+    assert skill.name == "Cool Skill"
+    assert skill.description == "Heading Desc"
 
 
 def test_skill_tool_exposes_names_as_enum():
-    skills = [{"name": "alpha", "description": "A", "content": "alpha body"}]
+    skills = [Skill(name="alpha", description="A", content="alpha body")]
 
     tool = make_skill_tool(skills)
 
@@ -70,7 +70,7 @@ def test_skill_tool_exposes_names_as_enum():
 
 
 def test_skill_tool_loads_content():
-    skills = [{"name": "alpha", "description": "A", "content": "alpha body"}]
+    skills = [Skill(name="alpha", description="A", content="alpha body")]
 
     tool = make_skill_tool(skills)
 
