@@ -187,14 +187,17 @@ class Arguments:
     model: str
     max_iterations: int
     jsonl: bool = False
+    bash: bool = False
 
     @classmethod
     def from_args(cls, argv: Optional[Sequence[str]] = None) -> "Arguments":
         parser = argparse.ArgumentParser(
             prog="ijon", description="Zero dependency AI harness with bash tool"
         )
+
         parser.add_argument("prompt", type=str)
         parser.add_argument("--model", type=str, required=True)
+        parser.add_argument("--bash", action="store_true", help="enable the bash tool")
         parser.add_argument("--max-iterations", type=int, default=10)
         parser.add_argument(
             "--jsonl",
@@ -302,25 +305,28 @@ def main() -> None:
         logger.error("%s", e)
         return
 
-    tools = [
-        {
-            "name": "execute_bash_script",
-            "description": "Execute a bash script and return the output",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "script": {
-                        "type": "string",
-                        "description": "The bash script to execute",
-                    }
+    tools = []
+
+    if arguments.bash:
+        tools.append(
+            {
+                "name": "execute_bash_script",
+                "description": "Execute a bash script and return the output",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "script": {
+                            "type": "string",
+                            "description": "The bash script to execute",
+                        }
+                    },
+                    "required": ["script"],
                 },
-                "required": ["script"],
-            },
-            "execute": lambda args: execute_bash_script(
-                args["script"], timeout=config.bash_timeout
-            ),
-        }
-    ]
+                "execute": lambda args: execute_bash_script(
+                    args["script"], timeout=config.bash_timeout
+                ),
+            }
+        )
 
     mcp_clients = load_mcp_clients_from_config()
     for mcp_client in mcp_clients:
