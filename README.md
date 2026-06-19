@@ -28,7 +28,7 @@ python ijon.py "your prompt" --model <model>
 ## Usage
 
 ```bash
-usage: ijon [-h] --model MODEL [--bash] [--mcp] [--skills] [--max-iterations MAX_ITERATIONS] [--jsonl] prompt
+usage: ijon [-h] --model MODEL [--bash] [--mcp] [--skills] [--max-iterations MAX_ITERATIONS] [--max-completion-tokens MAX_COMPLETION_TOKENS] [--jsonl] prompt
 ```
 
 | Option               | Description                              |
@@ -38,6 +38,7 @@ usage: ijon [-h] --model MODEL [--bash] [--mcp] [--skills] [--max-iterations MAX
 | `--mcp`              | Enable MCP tools from `.mcp.json`        |
 | `--skills`           | Enable skills from `.agents/skills`      |
 | `--max-iterations N` | Max agent loop iterations (default `10`) |
+| `--max-completion-tokens N` | Cap output tokens per response, including reasoning (default unset) |
 | `--jsonl`            | Emit the session as JSONL on stdout      |
 
 Let the model run shell commands:

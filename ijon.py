@@ -215,6 +215,7 @@ class Arguments:
     prompt: str
     model: str
     max_iterations: int
+    max_completion_tokens: Optional[int] = None
     jsonl: bool = False
     bash: bool = False
     mcp: bool = False
@@ -241,6 +242,12 @@ class Arguments:
             help="enable skills loaded from .agents/skills in the current directory",
         )
         parser.add_argument("--max-iterations", type=int, default=10)
+        parser.add_argument(
+            "--max-completion-tokens",
+            type=int,
+            default=None,
+            help="cap output tokens (incl. reasoning)",
+        )
         parser.add_argument(
             "--jsonl",
             action="store_true",
@@ -281,13 +288,15 @@ def run_agent(
     while iteration_count < args.max_iterations:
         iteration_count += 1
 
-        response = client.chat_completions(
-            {
-                "model": args.model,
-                "messages": messages,
-                "tools": tool_schemas,
-            }
-        )
+        body = {
+            "model": args.model,
+            "messages": messages,
+            "tools": tool_schemas,
+        }
+        if args.max_completion_tokens is not None:
+            body["max_completion_tokens"] = args.max_completion_tokens
+
+        response = client.chat_completions(body)
 
         if not response:
             logger.error("failed to get response")
