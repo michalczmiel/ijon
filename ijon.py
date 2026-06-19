@@ -1,4 +1,6 @@
 import argparse
+import functools
+import itertools
 import json
 import logging
 import os
@@ -8,6 +10,7 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from http import HTTPStatus
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -30,7 +33,7 @@ def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8")
         logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
-        if e.code == 401:
+        if e.code == HTTPStatus.UNAUTHORIZED:
             # MCP's OAuth flow starts here, but ijon only does static-token auth.
             challenge = e.headers.get("WWW-Authenticate")
             logger.error(
@@ -96,15 +99,11 @@ class HttpMCPClient:
             "Content-Type": "application/json",
             **(headers or {}),
         }
-        self._id = 0
-
-    def _next_id(self) -> int:
         # MCP requires ids to be non-null and unique within a session.
-        self._id += 1
-        return self._id
+        self._ids = itertools.count(1)
 
     def _send(self, method: str, params: Optional[dict] = None) -> Optional[dict]:
-        body = {"jsonrpc": "2.0", "id": self._next_id(), "method": method}
+        body = {"jsonrpc": "2.0", "id": next(self._ids), "method": method}
         if params is not None:
             body["params"] = params
 
@@ -120,7 +119,7 @@ class HttpMCPClient:
     def connect(self) -> bool:
         body = {
             "jsonrpc": "2.0",
-            "id": self._next_id(),
+            "id": next(self._ids),
             "method": "initialize",
             "params": {
                 "protocolVersion": "2025-06-18",
@@ -144,7 +143,7 @@ class HttpMCPClient:
         for line in raw.split("\n"):
             line = line.strip()
             if line.startswith("data:"):
-                return json.loads(line[5:])
+                return json.loads(line.removeprefix("data:"))
 
     def list_tools(self) -> list[dict]:
         result = self._send("tools/list")
@@ -188,7 +187,7 @@ def make_bash_tool(timeout: int) -> dict:
     }
 
 
-def execute_tool_call(tool_call: dict, tools: list[dict]) -> dict:
+def execute_tool_call(tool_call: dict, tools: dict[str, dict]) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
     try:
         tool_args = json.loads(tool_call["function"]["arguments"])
@@ -196,7 +195,7 @@ def execute_tool_call(tool_call: dict, tools: list[dict]) -> dict:
         result = f"error: invalid tool arguments JSON: {e}"
     else:
         tool_name = tool_call["function"]["name"]
-        tool = next((t for t in tools if t["name"] == tool_name), None)
+        tool = tools.get(tool_name)
 
         if tool is None:
             result = f"error: unknown tool '{tool_name}'"
@@ -263,6 +262,7 @@ def run_agent(
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
+    tools_by_name = {tool["name"]: tool for tool in tools}
     tool_schemas = [
         {
             "type": "function",
@@ -312,7 +312,7 @@ def run_agent(
             break
 
         for tool_call in tool_calls:
-            messages.append(execute_tool_call(tool_call, tools))
+            messages.append(execute_tool_call(tool_call, tools_by_name))
     else:
         logger.error("reached max iterations (%s)", args.max_iterations)
 
@@ -484,9 +484,7 @@ def main() -> None:
                     "name": name,
                     "description": mcp_tool["description"],
                     "parameters": mcp_tool["inputSchema"],
-                    "execute": lambda args, client=mcp_client, name=name: (
-                        client.call_tool(name, args)
-                    ),
+                    "execute": functools.partial(mcp_client.call_tool, name),
                 }
             )
 

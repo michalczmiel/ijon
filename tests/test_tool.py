@@ -17,7 +17,7 @@ def tool(name: str, execute) -> dict:
 
 def test_runs_the_matching_tool_with_parsed_args():
     received = {}
-    tools = [tool("echo", lambda args: received.update(args) or "ok")]
+    tools = {"echo": tool("echo", lambda args: received.update(args) or "ok")}
 
     msg = execute_tool_call(call("echo", json.dumps({"text": "hi"})), tools)
 
@@ -27,13 +27,13 @@ def test_runs_the_matching_tool_with_parsed_args():
 
 
 def test_reports_unknown_tool():
-    msg = execute_tool_call(call("nope", json.dumps({})), tools=[])
+    msg = execute_tool_call(call("nope", json.dumps({})), tools={})
 
     assert "unknown tool" in msg["content"]
 
 
 def test_reports_invalid_arguments_json():
-    tools = [tool("echo", lambda args: "ok")]
+    tools = {"echo": tool("echo", lambda args: "ok")}
 
     msg = execute_tool_call(call("echo", "not json"), tools)
 
