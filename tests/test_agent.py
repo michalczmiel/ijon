@@ -79,6 +79,24 @@ def test_shows_the_models_answer_to_the_user(run, caplog):
     assert "the answer is 42" in caplog.text
 
 
+def test_shows_the_models_thinking_to_the_user(run, caplog):
+    caplog.set_level(logging.INFO, logger="ijon")
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "reasoning_content": "let me work it out",
+                    "content": "the answer is 42",
+                }
+            }
+        ]
+    }
+    run(FakeClient([response]))
+
+    assert "let me work it out" in caplog.text
+
+
 def test_emits_the_whole_conversation_as_jsonl(run, capsys):
     tool_response = tool("echo hi")
     final_response = message("done")

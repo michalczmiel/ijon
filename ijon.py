@@ -302,6 +302,10 @@ def run_agent(
             logger.error("%s, response: %s", e, json.dumps(response))
             return
 
+        reasoning = message.get("reasoning_content") or message.get("reasoning")
+        if reasoning:
+            logger.info("reasoning:\n%s", reasoning)
+
         if message.get("content"):
             logger.info("%s", message["content"])
 
