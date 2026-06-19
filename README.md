@@ -47,6 +47,12 @@ Let the model run shell commands:
 ijon "explain what is this project" --model <model> --bash
 ```
 
+Pipe stdin in and it's appended to the prompt:
+
+```bash
+cat file.py | ijon "explain this" --model <model>
+```
+
 With `--jsonl`, stdout carries only the JSONL session and human-readable logs go to stderr, so this stays a clean save:
 
 ```bash

@@ -1,3 +1,5 @@
+import io
+
 from ijon import Arguments
 
 
@@ -27,3 +29,27 @@ def test_skills_disabled_by_default():
 
 def test_skills_flag_enables_the_tool():
     assert parse("--skills").skills is True
+
+
+class FakeStdin(io.StringIO):
+    def __init__(self, content: str, tty: bool):
+        super().__init__(content)
+        self._tty = tty
+
+    def isatty(self) -> bool:
+        return self._tty
+
+
+def test_piped_stdin_is_appended_to_prompt(monkeypatch):
+    monkeypatch.setattr("sys.stdin", FakeStdin("file contents", tty=False))
+    assert parse().prompt == "hi\n\nfile contents"
+
+
+def test_empty_pipe_leaves_prompt_unchanged(monkeypatch):
+    monkeypatch.setattr("sys.stdin", FakeStdin("   \n", tty=False))
+    assert parse().prompt == "hi"
+
+
+def test_tty_stdin_is_not_read(monkeypatch):
+    monkeypatch.setattr("sys.stdin", FakeStdin("should be ignored", tty=True))
+    assert parse().prompt == "hi"

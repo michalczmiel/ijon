@@ -210,6 +210,16 @@ def execute_tool_call(tool_call: dict, tools: dict[str, dict]) -> dict:
     }
 
 
+def read_piped_stdin() -> str:
+    """Return stdin's content when piped/redirected, else an empty string"""
+    if sys.stdin.isatty():
+        return ""
+    try:
+        return sys.stdin.read().strip()
+    except OSError, ValueError:
+        return ""
+
+
 @dataclass
 class Arguments:
     prompt: str
@@ -255,7 +265,13 @@ class Arguments:
         )
 
         args = parser.parse_args(argv)
-        return cls(**vars(args))
+        instance = cls(**vars(args))
+
+        piped = read_piped_stdin()
+        if piped:
+            instance.prompt = f"{instance.prompt}\n\n{piped}"
+
+        return instance
 
 
 def run_agent(
