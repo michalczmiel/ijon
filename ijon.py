@@ -56,10 +56,22 @@ class OpenAICompatibleClient:
     base_url: str
     api_key: Optional[str] = None
 
-    def chat_completions(self, body: dict) -> Optional[dict]:
+    def chat_completions(
+        self,
+        model: str,
+        messages: list[dict],
+        tools: Optional[list[dict]] = None,
+        max_completion_tokens: Optional[int] = None,
+    ) -> Optional[dict]:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
+
+        body = {"model": model, "messages": messages}
+        if tools:
+            body["tools"] = tools
+        if max_completion_tokens is not None:
+            body["max_completion_tokens"] = max_completion_tokens
 
         response = request(f"{self.base_url}/v1/chat/completions", headers, body)
         if response is None:
@@ -304,15 +316,12 @@ def run_agent(
     while iteration_count < args.max_iterations:
         iteration_count += 1
 
-        body = {
-            "model": args.model,
-            "messages": messages,
-            "tools": tool_schemas,
-        }
-        if args.max_completion_tokens is not None:
-            body["max_completion_tokens"] = args.max_completion_tokens
-
-        response = client.chat_completions(body)
+        response = client.chat_completions(
+            args.model,
+            messages,
+            tool_schemas,
+            args.max_completion_tokens,
+        )
 
         if not response:
             logger.error("failed to get response")

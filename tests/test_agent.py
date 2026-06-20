@@ -15,9 +15,16 @@ class FakeClient:
     turns: int = 0
     bodies: list = field(default_factory=list)
 
-    def chat_completions(self, body: dict):
+    def chat_completions(self, model, messages, tools=None, max_completion_tokens=None):
         self.turns += 1
-        self.bodies.append(body)
+        self.bodies.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "max_completion_tokens": max_completion_tokens,
+            }
+        )
         return self.responses.pop(0)
 
 
