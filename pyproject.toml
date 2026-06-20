@@ -16,6 +16,7 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "fastmcp>=3.4.2",
-    "pytest>=9.0.3",
+    "pytest>=9.1.1",
+    "pytest-httpserver>=1.1.5",
     "ruff>=0.15.16",
 ]
