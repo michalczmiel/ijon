@@ -4,7 +4,16 @@ version = "0.1.0"
 description = "Zero dependency AI harness with bash tool"
 readme = "README.md"
 requires-python = ">=3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Michał Czmiel" }]
+keywords = ["ai", "agent", "llm", "harness", "mcp", "cli"]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/michalczmiel/ijon"
+Repository = "https://github.com/michalczmiel/ijon"
+Issues = "https://github.com/michalczmiel/ijon/issues"
 
 [project.scripts]
 ijon = "ijon:main"

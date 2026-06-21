@@ -136,7 +136,7 @@ class HttpMCPClient:
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {"elicitation": {}},
-                "clientInfo": {"name": "ijon", "version": "1.0.0"},
+                "clientInfo": {"name": "ijon", "version": "0.1.0"},
             },
         }
         response = request(self.url, self.headers, body)
