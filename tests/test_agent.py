@@ -74,7 +74,7 @@ def run():
                 "execute": lambda args: "fake output",
             }
         ]
-        run_agent(args, client, tools)
+        return run_agent(args, client, tools)
 
     return _run
 
@@ -129,17 +129,29 @@ def test_feeds_the_tool_result_back_to_the_model(run):
 
 
 def test_survives_an_invalid_response(run, caplog):
-    run(FakeClient([{"unexpected": "shape"}]))
+    succeeded = run(FakeClient([{"unexpected": "shape"}]))
 
-    # No crash; the failure is logged for the user.
+    # No crash; the failure is logged for the user and reported as a failure.
     assert "response" in caplog.text
+    assert succeeded is False
 
 
 def test_stops_instead_of_looping_forever(run, caplog):
     # A model stuck always asking for another command must still terminate.
     client = FakeClient([tool("echo loop") for _ in range(10)])
 
-    run(client, max_iterations=3)
+    succeeded = run(client, max_iterations=3)
 
     assert client.turns == 3
     assert "max iterations" in caplog.text
+    assert succeeded is False
+
+
+def test_reports_success_when_the_model_finishes(run):
+    assert run(FakeClient([message("done")])) is True
+
+
+def test_reports_failure_when_the_request_fails(run, caplog):
+    # chat_completions returning None (e.g. network/HTTP error) is a failure.
+    assert run(FakeClient([None])) is False
+    assert "failed to get response" in caplog.text

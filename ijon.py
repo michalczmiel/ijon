@@ -290,9 +290,9 @@ def run_agent(
     args: Arguments,
     client: OpenAICompatibleClient,
     tools: list[dict],
-) -> None:
+) -> bool:
     """
-    Run the agent loop, handling tool calls and session storage.
+    Run the agent loop. Returns False on any error so callers can exit non-zero.
     """
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
@@ -325,7 +325,7 @@ def run_agent(
 
         if not response:
             logger.error("failed to get response")
-            return
+            return False
 
         if args.jsonl:
             print(json.dumps({"type": "completion", "response": response}), flush=True)
@@ -334,7 +334,7 @@ def run_agent(
             message = response["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as e:
             logger.error("%s, response: %s", e, json.dumps(response))
-            return
+            return False
 
         reasoning = message.get("reasoning_content") or message.get("reasoning")
         if reasoning:
@@ -347,12 +347,13 @@ def run_agent(
 
         tool_calls = message.get("tool_calls")
         if not tool_calls:
-            break
+            return True
 
         for tool_call in tool_calls:
             messages.append(execute_tool_call(tool_call, tools_by_name))
-    else:
-        logger.error("reached max iterations (%s)", args.max_iterations)
+
+    logger.error("reached max iterations (%s)", args.max_iterations)
+    return False
 
 
 # ${VAR} and ${VAR:-default}. stdlib os.path.expandvars lacks the :- default
@@ -502,7 +503,7 @@ def main() -> None:
         config = Config.from_env()
     except ValueError as e:
         logger.error("%s", e)
-        return
+        sys.exit(1)
 
     tools = []
 
@@ -534,11 +535,13 @@ def main() -> None:
 
     client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
 
-    run_agent(
+    succeeded = run_agent(
         arguments,
         client,
         tools,
     )
+    if not succeeded:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
