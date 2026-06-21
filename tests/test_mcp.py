@@ -103,7 +103,7 @@ def test_load_mcp_clients_expands_url_and_headers(tmp_path, monkeypatch):
             }
         }
     }
-    (tmp_path / ".mcp.json").write_text(json.dumps(config))
+    (tmp_path / "mcp.json").write_text(json.dumps(config))
 
     clients = load_mcp_clients_from_config()
 

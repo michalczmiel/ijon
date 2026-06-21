@@ -38,7 +38,7 @@ def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
             challenge = e.headers.get("WWW-Authenticate")
             logger.error(
                 "401 unauthorized for %s: ijon only supports static tokens "
-                "(set them in .mcp.json headers). WWW-Authenticate: %s",
+                "(set them in mcp.json headers). WWW-Authenticate: %s",
                 url,
                 challenge or "<none>",
             )
@@ -256,7 +256,7 @@ class Arguments:
         parser.add_argument(
             "--mcp",
             action="store_true",
-            help="enable MCP tools from .mcp.json in the current directory",
+            help="enable MCP tools from mcp.json in the current directory",
         )
         parser.add_argument(
             "--skills",
@@ -356,7 +356,7 @@ def run_agent(
 
 
 # ${VAR} and ${VAR:-default}. stdlib os.path.expandvars lacks the :- default
-# syntax, so we roll our own to match the .mcp.json convention used by Claude
+# syntax, so we roll our own to match the mcp.json convention used by Claude
 # Code, Cursor and VS Code.
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
@@ -374,18 +374,19 @@ def expand_env_vars(value: str) -> str:
             return env_value
         if default is not None:
             return default
-        logger.warning("env var %s referenced in .mcp.json is unset", name)
+        logger.warning("env var %s referenced in mcp.json is unset", name)
         return ""
 
     return _ENV_VAR_RE.sub(replace, value)
 
 
 def load_mcp_clients_from_config() -> list[HttpMCPClient]:
-    file_name = ".mcp.json"
+    file_name = "mcp.json"
     try:
         with open(file_name) as f:
             data = json.load(f)
     except FileNotFoundError:
+        logger.warning("mcp.json not found, add it or remove the --mcp flag")
         return []
     except json.JSONDecodeError as e:
         logger.error("malformed %s: %s", file_name, e)

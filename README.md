@@ -35,7 +35,7 @@ usage: ijon [-h] --model MODEL [--bash] [--mcp] [--skills] [--max-iterations MAX
 | --------------------------- | ------------------------------------------------------------------- |
 | `--model MODEL`             | Model id to use (required)                                          |
 | `--bash`                    | Enable the bash tool                                                |
-| `--mcp`                     | Enable MCP tools from `.mcp.json`                                   |
+| `--mcp`                     | Enable MCP tools from `mcp.json`                                    |
 | `--skills`                  | Enable skills from `.agents/skills`                                 |
 | `--max-iterations N`        | Max agent loop iterations (default `10`)                            |
 | `--max-completion-tokens N` | Cap output tokens per response, including reasoning (default unset) |
@@ -69,7 +69,7 @@ Set via environment variables (not auto-loaded from `.env`):
 
 ## MCP
 
-Drop a `.mcp.json` next to where you run `ijon` and pass `--mcp` to enable it. Each server's tools are discovered over HTTP and exposed to the model:
+Drop a `mcp.json` next to where you run `ijon` and pass `--mcp` to enable it. Each server's tools are discovered over HTTP and exposed to the model:
 
 ```json
 {
