@@ -228,7 +228,7 @@ def read_piped_stdin() -> str:
         return ""
     try:
         return sys.stdin.read().strip()
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return ""
 
 

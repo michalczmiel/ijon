@@ -2,7 +2,7 @@
 
 A single-file zero-dependency agent harness written in Python.
 
-- Zero runtime dependencies
+- Zero runtime dependencies, requires Python 3.9+
 - Everything lives in `ijon.py`
 - No sessions, no history
 - Built-in bash tool
@@ -19,7 +19,7 @@ Run without installing:
 uvx --from git+https://github.com/michalczmiel/ijon ijon "your prompt" --model <model>
 ```
 
-Or just copy `ijon.py` wherever you want and run it with Python — it's a single file with zero dependencies:
+Or just copy `ijon.py` wherever you want and run it with Python 3.9+ — it's a single file with zero dependencies:
 
 ```bash
 python ijon.py "your prompt" --model <model>
@@ -31,15 +31,15 @@ python ijon.py "your prompt" --model <model>
 usage: ijon [-h] --model MODEL [--bash] [--mcp] [--skills] [--max-iterations MAX_ITERATIONS] [--max-completion-tokens MAX_COMPLETION_TOKENS] [--jsonl] prompt
 ```
 
-| Option               | Description                              |
-| -------------------- | ---------------------------------------- |
-| `--model MODEL`      | Model id to use (required)               |
-| `--bash`             | Enable the bash tool                     |
-| `--mcp`              | Enable MCP tools from `.mcp.json`        |
-| `--skills`           | Enable skills from `.agents/skills`      |
-| `--max-iterations N` | Max agent loop iterations (default `10`) |
+| Option                      | Description                                                         |
+| --------------------------- | ------------------------------------------------------------------- |
+| `--model MODEL`             | Model id to use (required)                                          |
+| `--bash`                    | Enable the bash tool                                                |
+| `--mcp`                     | Enable MCP tools from `.mcp.json`                                   |
+| `--skills`                  | Enable skills from `.agents/skills`                                 |
+| `--max-iterations N`        | Max agent loop iterations (default `10`)                            |
 | `--max-completion-tokens N` | Cap output tokens per response, including reasoning (default unset) |
-| `--jsonl`            | Emit the session as JSONL on stdout      |
+| `--jsonl`                   | Emit the session as JSONL on stdout                                 |
 
 Let the model run shell commands:
 

@@ -5,9 +5,9 @@ from ijon import OpenAICompatibleClient
 
 def test_posts_the_body_to_the_chat_completions_endpoint(httpserver: HTTPServer):
     answer = {"choices": [{"message": {"role": "assistant", "content": "hi"}}]}
-    httpserver.expect_request(
-        "/v1/chat/completions", method="POST"
-    ).respond_with_json(answer)
+    httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
+        answer
+    )
 
     client = OpenAICompatibleClient(httpserver.url_for(""))
     messages = [{"role": "user", "content": "hi"}]
