@@ -24,6 +24,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "e2b>=2.10.2",
     "fastmcp>=3.4.2; python_version >= '3.10'",
     "pytest>=9.1.1; python_version >= '3.10'",
     "pytest-httpserver>=1.1.5; python_version >= '3.10'",
