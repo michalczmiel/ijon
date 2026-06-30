@@ -32,13 +32,14 @@ try:
     sandbox.commands.run(f"curl -fsSL -o ijon.py {IJON_URL}")
     sandbox.files.write("mcp.json", json.dumps(MCP_CONFIG))
 
-    result = sandbox.commands.run(
+    handle = sandbox.commands.run(
         f'python ijon.py "Search the web for LLM harnesses trends in 2026, then write a markdown report of the top 3 findings to {REPORT_FILE}" --model "anthropic/claude-sonnet-4.6" --bash --mcp',
-        # we need to wait for agent to complete
+        background=True,
+        # no timeout, the agent decides when it's done
         timeout=0,
     )
 
-    print(result.stderr)
+    handle.wait(on_stderr=lambda line: print(line, end=""))
 
     print(sandbox.files.read(REPORT_FILE))
 finally:
