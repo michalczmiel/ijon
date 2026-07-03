@@ -4,7 +4,7 @@ A single-file zero-dependency agent harness in Python 3.9+.
 
 - No sessions, no history
 - Built-in bash tool, HTTP MCP, and skills
-- Built-in retries on 429/5xx with exponential backoff
+- Built-in retries on 429/5xx and timeouts with exponential backoff
 
 A learning project, not for production. Tested with the OpenRouter API.
 
@@ -61,8 +61,9 @@ Set via environment variables (not auto-loaded from `.env`):
 | `OPENAI_BASE_URL`       | API base URL                                     | required |
 | `OPENAI_API_KEY`        | Bearer token; header omitted if unset            | —        |
 | `IJON_BASH_TIMEOUT`     | Bash tool timeout, seconds                       | `120`    |
-| `IJON_MAX_ATTEMPTS`     | HTTP attempts, retrying 429/5xx                  | `3`      |
+| `IJON_MAX_ATTEMPTS`     | HTTP attempts, retrying 429/5xx and timeouts     | `3`      |
 | `IJON_RETRY_BASE_DELAY` | Seconds before first retry, doubles each attempt | `1.0`    |
+| `IJON_HTTP_TIMEOUT`     | HTTP timeout, seconds; retried on timeout        | `120`    |
 
 ## MCP
 

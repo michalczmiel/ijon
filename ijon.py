@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -24,6 +25,28 @@ class HttpTransport:
 
     request_max_attempts: int
     request_base_delay: float  # seconds; doubles each attempt
+    timeout: int  # seconds
+
+    def _retry(self, attempt: int, reason: str) -> bool:
+        """Sleep with exponential backoff before the next attempt.
+
+        Returns False when attempts are exhausted, so the caller gives up.
+        """
+        if attempt == self.request_max_attempts:
+            logger.error(
+                "giving up after %d attempts: %s", self.request_max_attempts, reason
+            )
+            return False
+        delay = self.request_base_delay * 2 ** (attempt - 1)
+        logger.warning(
+            "%s, retrying in %.1fs (attempt %d/%d)",
+            reason,
+            delay,
+            attempt,
+            self.request_max_attempts,
+        )
+        time.sleep(delay)
+        return True
 
     def request(
         self, url: str, headers: dict, body: dict
@@ -37,37 +60,25 @@ class HttpTransport:
 
         for attempt in range(1, self.request_max_attempts + 1):
             try:
-                with urllib.request.urlopen(req, timeout=60) as response:
+                with urllib.request.urlopen(req, timeout=self.timeout) as response:
                     data = response.read().decode("utf-8")
                     headers = response.headers
                 return data, headers
+            except socket.timeout:
+                if self._retry(attempt, f"request timed out after {self.timeout}s"):
+                    continue
+                return None
             except urllib.error.HTTPError as e:
                 error_body = e.read().decode("utf-8")
                 if (
                     e.code == HTTPStatus.TOO_MANY_REQUESTS
                     or e.code >= HTTPStatus.INTERNAL_SERVER_ERROR
                 ):
-                    if attempt == self.request_max_attempts:
-                        logger.error(
-                            "giving up after %d attempts: HTTP %s %s: %s",
-                            self.request_max_attempts,
-                            e.code,
-                            e.reason,
-                            error_body,
-                        )
-                        return None
-                    delay = self.request_base_delay * 2 ** (attempt - 1)
-                    logger.warning(
-                        "request failed (HTTP %s %s), retrying in %.1fs "
-                        "(attempt %d/%d)",
-                        e.code,
-                        e.reason,
-                        delay,
-                        attempt,
-                        self.request_max_attempts,
-                    )
-                    time.sleep(delay)
-                    continue
+                    if self._retry(
+                        attempt, f"request failed (HTTP {e.code} {e.reason})"
+                    ):
+                        continue
+                    return None
                 logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
                 if e.code == HTTPStatus.UNAUTHORIZED:
                     # MCP's OAuth flow starts here, but ijon only does static-token auth.
@@ -146,6 +157,7 @@ class Config:
     bash_timeout: int = 120
     request_max_attempts: int = 3
     request_base_delay: float = 1.0
+    http_timeout: int = 120
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -169,12 +181,15 @@ class Config:
                 f"IJON_RETRY_BASE_DELAY must not be negative, got {request_base_delay}"
             )
 
+        http_timeout = _env_int("IJON_HTTP_TIMEOUT", 120)
+
         return cls(
             openai_base_url=openai_base_url,
             openai_api_key=openai_api_key,
             bash_timeout=bash_timeout,
             request_max_attempts=request_max_attempts,
             request_base_delay=request_base_delay,
+            http_timeout=http_timeout,
         )
 
 
@@ -591,6 +606,7 @@ def main() -> None:
     transport = HttpTransport(
         request_max_attempts=config.request_max_attempts,
         request_base_delay=config.request_base_delay,
+        timeout=config.http_timeout,
     )
 
     tools = []

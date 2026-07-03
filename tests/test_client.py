@@ -3,16 +3,15 @@ from pytest_httpserver import HTTPServer
 from ijon import HttpTransport, OpenAICompatibleClient
 
 
-def test_posts_the_body_to_the_chat_completions_endpoint(httpserver: HTTPServer):
+def test_posts_the_body_to_the_chat_completions_endpoint(
+    httpserver: HTTPServer, transport: HttpTransport
+):
     answer = {"choices": [{"message": {"role": "assistant", "content": "hi"}}]}
     httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
         answer
     )
 
-    client = OpenAICompatibleClient(
-        httpserver.url_for(""),
-        HttpTransport(request_max_attempts=3, request_base_delay=1.0),
-    )
+    client = OpenAICompatibleClient(httpserver.url_for(""), transport)
     messages = [{"role": "user", "content": "hi"}]
     result = client.chat_completions("test-model", messages)
 
@@ -22,12 +21,14 @@ def test_posts_the_body_to_the_chat_completions_endpoint(httpserver: HTTPServer)
     assert request.headers["Content-Type"] == "application/json"
 
 
-def test_sends_the_api_key_as_a_bearer_token(httpserver: HTTPServer):
+def test_sends_the_api_key_as_a_bearer_token(
+    httpserver: HTTPServer, transport: HttpTransport
+):
     httpserver.expect_request("/v1/chat/completions").respond_with_json({})
 
     client = OpenAICompatibleClient(
         httpserver.url_for(""),
-        HttpTransport(request_max_attempts=3, request_base_delay=1.0),
+        transport,
         api_key="sk-secret",
     )
     client.chat_completions("test-model", [])
@@ -36,26 +37,24 @@ def test_sends_the_api_key_as_a_bearer_token(httpserver: HTTPServer):
     assert request.headers["Authorization"] == "Bearer sk-secret"
 
 
-def test_omits_authorization_without_an_api_key(httpserver: HTTPServer):
+def test_omits_authorization_without_an_api_key(
+    httpserver: HTTPServer, transport: HttpTransport
+):
     httpserver.expect_request("/v1/chat/completions").respond_with_json({})
 
-    client = OpenAICompatibleClient(
-        httpserver.url_for(""),
-        HttpTransport(request_max_attempts=3, request_base_delay=1.0),
-    )
+    client = OpenAICompatibleClient(httpserver.url_for(""), transport)
     client.chat_completions("test-model", [])
 
     request, _ = httpserver.log[0]
     assert "Authorization" not in request.headers
 
 
-def test_includes_tools_and_max_completion_tokens_when_set(httpserver: HTTPServer):
+def test_includes_tools_and_max_completion_tokens_when_set(
+    httpserver: HTTPServer, transport: HttpTransport
+):
     httpserver.expect_request("/v1/chat/completions").respond_with_json({})
 
-    client = OpenAICompatibleClient(
-        httpserver.url_for(""),
-        HttpTransport(request_max_attempts=3, request_base_delay=1.0),
-    )
+    client = OpenAICompatibleClient(httpserver.url_for(""), transport)
     tools = [{"type": "function", "function": {"name": "t"}}]
     client.chat_completions("test-model", [], tools=tools, max_completion_tokens=256)
 
@@ -68,13 +67,12 @@ def test_includes_tools_and_max_completion_tokens_when_set(httpserver: HTTPServe
     }
 
 
-def test_omits_tools_and_max_completion_tokens_when_unset(httpserver: HTTPServer):
+def test_omits_tools_and_max_completion_tokens_when_unset(
+    httpserver: HTTPServer, transport: HttpTransport
+):
     httpserver.expect_request("/v1/chat/completions").respond_with_json({})
 
-    client = OpenAICompatibleClient(
-        httpserver.url_for(""),
-        HttpTransport(request_max_attempts=3, request_base_delay=1.0),
-    )
+    client = OpenAICompatibleClient(httpserver.url_for(""), transport)
     client.chat_completions("test-model", [])
 
     request, _ = httpserver.log[0]
@@ -83,15 +81,12 @@ def test_omits_tools_and_max_completion_tokens_when_unset(httpserver: HTTPServer
     assert "max_completion_tokens" not in body
 
 
-def test_returns_none_on_http_error(httpserver: HTTPServer):
+def test_returns_none_on_http_error(httpserver: HTTPServer, transport: HttpTransport):
     httpserver.expect_request("/v1/chat/completions").respond_with_data(
         "boom", status=500
     )
 
-    client = OpenAICompatibleClient(
-        httpserver.url_for(""),
-        HttpTransport(request_max_attempts=3, request_base_delay=1.0),
-    )
+    client = OpenAICompatibleClient(httpserver.url_for(""), transport)
     result = client.chat_completions("test-model", [])
 
     assert result is None

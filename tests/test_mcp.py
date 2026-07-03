@@ -32,10 +32,8 @@ def mcp_url() -> Iterator[str]:
 
 
 @pytest.fixture
-def client(mcp_url) -> HttpMCPClient:
-    return HttpMCPClient(
-        mcp_url, HttpTransport(request_max_attempts=3, request_base_delay=1.0)
-    )
+def client(mcp_url, transport: HttpTransport) -> HttpMCPClient:
+    return HttpMCPClient(mcp_url, transport)
 
 
 def test_connect_establishes_a_session(client):
@@ -98,7 +96,9 @@ def test_expand_env_vars_handles_multiple_references(monkeypatch):
     )
 
 
-def test_load_mcp_clients_expands_url_and_headers(tmp_path, monkeypatch):
+def test_load_mcp_clients_expands_url_and_headers(
+    tmp_path, monkeypatch, transport: HttpTransport
+):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("API_KEY", "secret")
     monkeypatch.delenv("API_BASE_URL", raising=False)
@@ -112,9 +112,7 @@ def test_load_mcp_clients_expands_url_and_headers(tmp_path, monkeypatch):
     }
     (tmp_path / "mcp.json").write_text(json.dumps(config))
 
-    clients = load_mcp_clients_from_config(
-        HttpTransport(request_max_attempts=3, request_base_delay=1.0)
-    )
+    clients = load_mcp_clients_from_config(transport)
 
     assert len(clients) == 1
     assert clients[0].url == "https://api.example.com/mcp"
