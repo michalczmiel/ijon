@@ -21,7 +21,7 @@ logger = logging.getLogger("ijon")
 
 @dataclass
 class HttpTransport:
-    """Makes HTTP requests, retrying 429/5xx with exponential backoff."""
+    """Makes HTTP requests, retrying 429/5xx and timeouts with exponential backoff."""
 
     request_max_attempts: int
     request_base_delay: float  # seconds; doubles each attempt
@@ -167,21 +167,22 @@ class Config:
 
         openai_api_key = os.environ.get("OPENAI_API_KEY")
 
-        bash_timeout = _env_int("IJON_BASH_TIMEOUT", 120)
+        # Fall back to the field defaults above so they stay the single source.
+        bash_timeout = _env_int("IJON_BASH_TIMEOUT", cls.bash_timeout)
 
-        request_max_attempts = _env_int("IJON_MAX_ATTEMPTS", 3)
+        request_max_attempts = _env_int("IJON_MAX_ATTEMPTS", cls.request_max_attempts)
         if request_max_attempts < 1:
             raise ValueError(
                 f"IJON_MAX_ATTEMPTS must be at least 1, got {request_max_attempts}"
             )
 
-        request_base_delay = _env_float("IJON_RETRY_BASE_DELAY", 1.0)
+        request_base_delay = _env_float("IJON_RETRY_BASE_DELAY", cls.request_base_delay)
         if request_base_delay < 0:
             raise ValueError(
                 f"IJON_RETRY_BASE_DELAY must not be negative, got {request_base_delay}"
             )
 
-        http_timeout = _env_int("IJON_HTTP_TIMEOUT", 120)
+        http_timeout = _env_int("IJON_HTTP_TIMEOUT", cls.http_timeout)
 
         return cls(
             openai_base_url=openai_base_url,
