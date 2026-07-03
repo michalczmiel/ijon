@@ -34,3 +34,35 @@ def test_bash_timeout_defaults_when_unset(monkeypatch):
     monkeypatch.delenv("IJON_BASH_TIMEOUT", raising=False)
 
     assert Config.from_env().bash_timeout == 120
+
+
+def test_non_integer_env_is_an_error(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("IJON_BASH_TIMEOUT", "abc")
+
+    with pytest.raises(ValueError, match="IJON_BASH_TIMEOUT"):
+        Config.from_env()
+
+
+def test_non_number_env_is_an_error(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("IJON_RETRY_BASE_DELAY", "fast")
+
+    with pytest.raises(ValueError, match="IJON_RETRY_BASE_DELAY"):
+        Config.from_env()
+
+
+def test_max_attempts_below_one_is_an_error(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("IJON_MAX_ATTEMPTS", "0")
+
+    with pytest.raises(ValueError, match="IJON_MAX_ATTEMPTS"):
+        Config.from_env()
+
+
+def test_negative_retry_base_delay_is_an_error(monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
+    monkeypatch.setenv("IJON_RETRY_BASE_DELAY", "-1")
+
+    with pytest.raises(ValueError, match="IJON_RETRY_BASE_DELAY"):
+        Config.from_env()
