@@ -29,10 +29,7 @@ class HttpTransport:
     timeout: int  # seconds
 
     def _retry(self, attempt: int, reason: str) -> bool:
-        """Sleep with exponential backoff before the next attempt.
-
-        Returns False when attempts are exhausted, so the caller gives up.
-        """
+        """Sleep with backoff before retrying; return False when attempts exhausted so caller gives up."""
         if attempt == self.request_max_attempts:
             logger.error(
                 "giving up after %d attempts: %s", self.request_max_attempts, reason
@@ -168,7 +165,6 @@ class Config:
 
         openai_api_key = os.environ.get("OPENAI_API_KEY")
 
-        # Fall back to the field defaults above so they stay the single source.
         bash_timeout = _env_int("IJON_BASH_TIMEOUT", cls.bash_timeout)
 
         request_max_attempts = _env_int("IJON_MAX_ATTEMPTS", cls.request_max_attempts)
@@ -276,7 +272,8 @@ def execute_bash_script(script: str, timeout: int) -> str:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            # The shell is its own group leader, so its pid is the group id; ignore if the group already drained.
+            # shell is its own group leader (start_new_session), so pid == group id;
+            # ProcessLookupError means the group already drained.
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
@@ -293,7 +290,6 @@ def execute_bash_script(script: str, timeout: int) -> str:
 
 
 def make_bash_tool(timeout: int) -> dict:
-    """Expose bash script execution as a tool."""
     return {
         "name": "execute_bash_script",
         "description": "Execute a bash script and return the output",
@@ -315,7 +311,7 @@ def execute_tool_call(tool_call: dict, tools: dict[str, dict]) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
 
     def reply(result) -> dict:
-        # Pass str results through; only serialize dicts (MCP) to avoid double-encoding.
+        # only serialize dicts (MCP); str passes through to avoid double-encoding.
         content = result if isinstance(result, str) else json.dumps(result)
         return {
             "role": "tool",
@@ -410,9 +406,7 @@ def run_agent(
     client: OpenAICompatibleClient,
     tools: list[dict],
 ) -> bool:
-    """
-    Run the agent loop. Returns False on any error so callers can exit non-zero.
-    """
+    """Run the agent loop; return False on any error so callers exit non-zero."""
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
@@ -480,17 +474,13 @@ def run_agent(
     return False
 
 
-# ${VAR} and ${VAR:-default}. stdlib os.path.expandvars lacks the :- default
-# syntax, so we roll our own to match the mcp.json convention used by Claude
-# Code, Cursor and VS Code.
+# os.path.expandvars lacks ${VAR:-default}, so roll our own to match the
+# mcp.json convention (Claude Code, Cursor, VS Code).
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
 
 def expand_env_vars(value: str) -> str:
-    """Expand ${VAR} / ${VAR:-default} references against the environment.
-
-    An unset variable without a default expands to an empty string.
-    """
+    """Expand ${VAR} / ${VAR:-default}; unset without default → empty string."""
 
     def replace(match: re.Match) -> str:
         name, default = match.group(1), match.group(2)
