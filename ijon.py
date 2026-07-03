@@ -298,25 +298,30 @@ def make_bash_tool(timeout: int) -> dict:
 
 def execute_tool_call(tool_call: dict, tools: dict[str, dict]) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
+
+    def reply(result: str) -> dict:
+        return {
+            "role": "tool",
+            "content": json.dumps(result),
+            "tool_call_id": tool_call["id"],
+        }
+
     try:
         tool_args = json.loads(tool_call["function"]["arguments"])
     except (json.JSONDecodeError, TypeError) as e:
-        result = f"error: invalid tool arguments JSON: {e}"
-    else:
-        tool_name = tool_call["function"]["name"]
-        tool = tools.get(tool_name)
+        return reply(f"error: invalid tool arguments JSON: {e}")
 
-        if tool is None:
-            result = f"error: unknown tool '{tool_name}'"
-        else:
-            logger.info("executing tool: %s with args %s", tool_name, tool_args)
-            result = tool["execute"](tool_args)
+    tool_name = tool_call["function"]["name"]
+    tool = tools.get(tool_name)
+    if tool is None:
+        return reply(f"error: unknown tool '{tool_name}'")
 
-    return {
-        "role": "tool",
-        "content": json.dumps(result),
-        "tool_call_id": tool_call["id"],
-    }
+    logger.info("executing tool: %s with args %s", tool_name, tool_args)
+    try:
+        return reply(tool["execute"](tool_args))
+    except Exception as e:
+        logger.error("tool %s failed: %s", tool_name, e)
+        return reply(f"error: {e}")
 
 
 def read_piped_stdin() -> str:

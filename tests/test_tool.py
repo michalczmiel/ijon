@@ -38,3 +38,15 @@ def test_reports_invalid_arguments_json():
     msg = execute_tool_call(call("echo", "not json"), tools)
 
     assert "invalid tool arguments JSON" in msg["content"]
+
+
+def test_reports_tool_exception_instead_of_crashing():
+    def boom(args):
+        raise RuntimeError("kaboom")
+
+    tools = {"boom": tool("boom", boom)}
+
+    msg = execute_tool_call(call("boom", json.dumps({})), tools)
+
+    assert "kaboom" in msg["content"]
+    assert msg["tool_call_id"] == "call_1"
