@@ -5,7 +5,12 @@ import pytest
 from fastmcp import FastMCP
 from fastmcp.utilities.tests import run_server_in_process
 
-from ijon import HttpMCPClient, expand_env_vars, load_mcp_clients_from_config
+from ijon import (
+    HttpMCPClient,
+    HttpTransport,
+    expand_env_vars,
+    load_mcp_clients_from_config,
+)
 
 
 def _run_server(host: str, port: int) -> None:
@@ -28,7 +33,9 @@ def mcp_url() -> Iterator[str]:
 
 @pytest.fixture
 def client(mcp_url) -> HttpMCPClient:
-    return HttpMCPClient(mcp_url)
+    return HttpMCPClient(
+        mcp_url, HttpTransport(request_max_attempts=3, request_base_delay=1.0)
+    )
 
 
 def test_connect_establishes_a_session(client):
@@ -105,7 +112,9 @@ def test_load_mcp_clients_expands_url_and_headers(tmp_path, monkeypatch):
     }
     (tmp_path / "mcp.json").write_text(json.dumps(config))
 
-    clients = load_mcp_clients_from_config()
+    clients = load_mcp_clients_from_config(
+        HttpTransport(request_max_attempts=3, request_base_delay=1.0)
+    )
 
     assert len(clients) == 1
     assert clients[0].url == "https://api.example.com/mcp"

@@ -1,6 +1,11 @@
 from pytest_httpserver import HTTPServer
 
-from ijon import MAX_ATTEMPTS, request
+from ijon import HttpTransport
+
+MAX_ATTEMPTS = 3
+request = HttpTransport(
+    request_max_attempts=MAX_ATTEMPTS, request_base_delay=1.0
+).request
 
 
 def test_request_retries_on_server_error(httpserver: HTTPServer):

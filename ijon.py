@@ -18,72 +18,79 @@ from typing import Optional, Sequence
 logger = logging.getLogger("ijon")
 
 
-MAX_ATTEMPTS = 3
-RETRY_BASE_DELAY = 1.0  # seconds; doubles each attempt
+@dataclass
+class HttpTransport:
+    """Makes HTTP requests, retrying 429/5xx with exponential backoff."""
 
+    request_max_attempts: int
+    request_base_delay: float  # seconds; doubles each attempt
 
-def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
-    body_bytes = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=body_bytes,
-        headers=headers,
-    )
+    def request(
+        self, url: str, headers: dict, body: dict
+    ) -> Optional[tuple[str, dict]]:
+        body_bytes = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=body_bytes,
+            headers=headers,
+        )
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        try:
-            with urllib.request.urlopen(req, timeout=60) as response:
-                data = response.read().decode("utf-8")
-                headers = response.headers
-            return data, headers
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode("utf-8")
-            if (
-                e.code == HTTPStatus.TOO_MANY_REQUESTS
-                or e.code >= HTTPStatus.INTERNAL_SERVER_ERROR
-            ):
-                if attempt == MAX_ATTEMPTS:
-                    logger.error(
-                        "giving up after %d attempts: HTTP %s %s: %s",
-                        MAX_ATTEMPTS,
+        for attempt in range(1, self.request_max_attempts + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=60) as response:
+                    data = response.read().decode("utf-8")
+                    headers = response.headers
+                return data, headers
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode("utf-8")
+                if (
+                    e.code == HTTPStatus.TOO_MANY_REQUESTS
+                    or e.code >= HTTPStatus.INTERNAL_SERVER_ERROR
+                ):
+                    if attempt == self.request_max_attempts:
+                        logger.error(
+                            "giving up after %d attempts: HTTP %s %s: %s",
+                            self.request_max_attempts,
+                            e.code,
+                            e.reason,
+                            error_body,
+                        )
+                        return None
+                    delay = self.request_base_delay * 2 ** (attempt - 1)
+                    logger.warning(
+                        "request failed (HTTP %s %s), retrying in %.1fs "
+                        "(attempt %d/%d)",
                         e.code,
                         e.reason,
-                        error_body,
+                        delay,
+                        attempt,
+                        self.request_max_attempts,
                     )
-                    return None
-                delay = RETRY_BASE_DELAY * 2 ** (attempt - 1)
-                logger.warning(
-                    "request failed (HTTP %s %s), retrying in %.1fs (attempt %d/%d)",
-                    e.code,
-                    e.reason,
-                    delay,
-                    attempt,
-                    MAX_ATTEMPTS,
-                )
-                time.sleep(delay)
-                continue
-            logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
-            if e.code == HTTPStatus.UNAUTHORIZED:
-                # MCP's OAuth flow starts here, but ijon only does static-token auth.
-                challenge = e.headers.get("WWW-Authenticate")
-                logger.error(
-                    "401 unauthorized for %s: ijon only supports static tokens "
-                    "(set them in mcp.json headers). WWW-Authenticate: %s",
-                    url,
-                    challenge or "<none>",
-                )
-            return None
-        except urllib.error.URLError as e:
-            logger.error("cannot connect to %s: %s", url, e.reason)
-            return None
-        except Exception as e:
-            logger.error("%s", e)
-            return None
+                    time.sleep(delay)
+                    continue
+                logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
+                if e.code == HTTPStatus.UNAUTHORIZED:
+                    # MCP's OAuth flow starts here, but ijon only does static-token auth.
+                    challenge = e.headers.get("WWW-Authenticate")
+                    logger.error(
+                        "401 unauthorized for %s: ijon only supports static tokens "
+                        "(set them in mcp.json headers). WWW-Authenticate: %s",
+                        url,
+                        challenge or "<none>",
+                    )
+                return None
+            except urllib.error.URLError as e:
+                logger.error("cannot connect to %s: %s", url, e.reason)
+                return None
+            except Exception as e:
+                logger.error("%s", e)
+                return None
 
 
 @dataclass
 class OpenAICompatibleClient:
     base_url: str
+    transport: HttpTransport
     api_key: Optional[str] = None
 
     def chat_completions(
@@ -103,11 +110,33 @@ class OpenAICompatibleClient:
         if max_completion_tokens is not None:
             body["max_completion_tokens"] = max_completion_tokens
 
-        response = request(f"{self.base_url}/v1/chat/completions", headers, body)
+        response = self.transport.request(
+            f"{self.base_url}/v1/chat/completions", headers, body
+        )
         if response is None:
             return None
         data, _ = response
         return json.loads(data)
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer, got {raw!r}")
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be a number, got {raw!r}")
 
 
 @dataclass
@@ -115,6 +144,8 @@ class Config:
     openai_base_url: str
     openai_api_key: Optional[str] = None
     bash_timeout: int = 120
+    request_max_attempts: int = 3
+    request_base_delay: float = 1.0
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -124,23 +155,43 @@ class Config:
 
         openai_api_key = os.environ.get("OPENAI_API_KEY")
 
-        bash_timeout = int(os.environ.get("IJON_BASH_TIMEOUT", "120"))
+        bash_timeout = _env_int("IJON_BASH_TIMEOUT", 120)
+
+        request_max_attempts = _env_int("IJON_MAX_ATTEMPTS", 3)
+        if request_max_attempts < 1:
+            raise ValueError(
+                f"IJON_MAX_ATTEMPTS must be at least 1, got {request_max_attempts}"
+            )
+
+        request_base_delay = _env_float("IJON_RETRY_BASE_DELAY", 1.0)
+        if request_base_delay < 0:
+            raise ValueError(
+                f"IJON_RETRY_BASE_DELAY must not be negative, got {request_base_delay}"
+            )
 
         return cls(
             openai_base_url=openai_base_url,
             openai_api_key=openai_api_key,
             bash_timeout=bash_timeout,
+            request_max_attempts=request_max_attempts,
+            request_base_delay=request_base_delay,
         )
 
 
 class HttpMCPClient:
-    def __init__(self, url: str, headers: Optional[dict[str, str]] = None):
+    def __init__(
+        self,
+        url: str,
+        transport: HttpTransport,
+        headers: Optional[dict[str, str]] = None,
+    ):
         self.url = url
         self.headers = {
             "Accept": "text/event-stream, application/json",
             "Content-Type": "application/json",
             **(headers or {}),
         }
+        self.transport = transport
         # MCP requires ids to be non-null and unique within a session.
         self._ids = itertools.count(1)
 
@@ -149,7 +200,7 @@ class HttpMCPClient:
         if params is not None:
             body["params"] = params
 
-        response = request(self.url, self.headers, body)
+        response = self.transport.request(self.url, self.headers, body)
         if not response:
             return None
         data, _ = response
@@ -169,7 +220,7 @@ class HttpMCPClient:
                 "clientInfo": {"name": "ijon", "version": "0.1.0"},
             },
         }
-        response = request(self.url, self.headers, body)
+        response = self.transport.request(self.url, self.headers, body)
         if not response:
             return False
         _, headers = response
@@ -411,7 +462,9 @@ def expand_env_vars(value: str) -> str:
     return _ENV_VAR_RE.sub(replace, value)
 
 
-def load_mcp_clients_from_config() -> list[HttpMCPClient]:
+def load_mcp_clients_from_config(
+    transport: HttpTransport,
+) -> list[HttpMCPClient]:
     file_name = "mcp.json"
     try:
         with open(file_name) as f:
@@ -432,7 +485,7 @@ def load_mcp_clients_from_config() -> list[HttpMCPClient]:
         headers = server.get("headers")
         if headers is not None:
             headers = {k: expand_env_vars(v) for k, v in headers.items()}
-        clients.append(HttpMCPClient(url, headers))
+        clients.append(HttpMCPClient(url, transport, headers))
     return clients
 
 
@@ -535,12 +588,17 @@ def main() -> None:
         logger.error("%s", e)
         sys.exit(1)
 
+    transport = HttpTransport(
+        request_max_attempts=config.request_max_attempts,
+        request_base_delay=config.request_base_delay,
+    )
+
     tools = []
 
     if arguments.bash:
         tools.append(make_bash_tool(config.bash_timeout))
 
-    mcp_clients = load_mcp_clients_from_config() if arguments.mcp else []
+    mcp_clients = load_mcp_clients_from_config(transport) if arguments.mcp else []
     for mcp_client in mcp_clients:
         connected = mcp_client.connect()
         if not connected:
@@ -563,7 +621,9 @@ def main() -> None:
         if skills:
             tools.append(make_skill_tool(skills))
 
-    client = OpenAICompatibleClient(config.openai_base_url, config.openai_api_key)
+    client = OpenAICompatibleClient(
+        config.openai_base_url, transport, config.openai_api_key
+    )
 
     succeeded = run_agent(
         arguments,

@@ -66,6 +66,8 @@ Set via environment variables (not auto-loaded from `.env`):
 - `OPENAI_BASE_URL` (required)
 - `OPENAI_API_KEY`
 - `IJON_BASH_TIMEOUT` (default `120`)
+- `IJON_MAX_ATTEMPTS` — HTTP attempts before giving up, retrying 429/5xx (default `3`)
+- `IJON_RETRY_BASE_DELAY` — seconds before the first retry, doubling each attempt (default `1.0`)
 
 ## MCP
 
