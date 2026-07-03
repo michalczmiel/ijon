@@ -117,7 +117,7 @@ def test_emits_the_whole_conversation_as_jsonl(run, capsys):
             "type": "tool_result",
             "message": {
                 "role": "tool",
-                "content": '"fake output"',
+                "content": "fake output",
                 "tool_call_id": "call_1",
             },
         },

@@ -26,6 +26,15 @@ def test_runs_the_matching_tool_with_parsed_args():
     assert "ok" in msg["content"]
 
 
+def test_string_result_is_not_double_encoded():
+    output = "exit_code: 0\nstdout:\nhi"
+    tools = {"echo": tool("echo", lambda args: output)}
+
+    msg = execute_tool_call(call("echo", json.dumps({})), tools)
+
+    assert msg["content"] == output
+
+
 def test_reports_unknown_tool():
     msg = execute_tool_call(call("nope", json.dumps({})), tools={})
 

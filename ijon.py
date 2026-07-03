@@ -299,10 +299,12 @@ def make_bash_tool(timeout: int) -> dict:
 def execute_tool_call(tool_call: dict, tools: dict[str, dict]) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
 
-    def reply(result: str) -> dict:
+    def reply(result) -> dict:
+        # Pass str results through; only serialize dicts (MCP) to avoid double-encoding.
+        content = result if isinstance(result, str) else json.dumps(result)
         return {
             "role": "tool",
-            "content": json.dumps(result),
+            "content": content,
             "tool_call_id": tool_call["id"],
         }
 
