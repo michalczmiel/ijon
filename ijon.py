@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -17,6 +18,10 @@ from typing import Optional, Sequence
 logger = logging.getLogger("ijon")
 
 
+MAX_ATTEMPTS = 3
+RETRY_BASE_DELAY = 1.0  # seconds; doubles each attempt
+
+
 def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
     body_bytes = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(
@@ -25,30 +30,55 @@ def request(url: str, headers: dict, body: dict) -> Optional[tuple[str, dict]]:
         headers=headers,
     )
 
-    try:
-        with urllib.request.urlopen(req, timeout=60) as response:
-            data = response.read().decode("utf-8")
-            headers = response.headers
-        return data, headers
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8")
-        logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
-        if e.code == HTTPStatus.UNAUTHORIZED:
-            # MCP's OAuth flow starts here, but ijon only does static-token auth.
-            challenge = e.headers.get("WWW-Authenticate")
-            logger.error(
-                "401 unauthorized for %s: ijon only supports static tokens "
-                "(set them in mcp.json headers). WWW-Authenticate: %s",
-                url,
-                challenge or "<none>",
-            )
-        return None
-    except urllib.error.URLError as e:
-        logger.error("cannot connect to %s: %s", url, e.reason)
-        return None
-    except Exception as e:
-        logger.error("%s", e)
-        return None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                data = response.read().decode("utf-8")
+                headers = response.headers
+            return data, headers
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8")
+            if (
+                e.code == HTTPStatus.TOO_MANY_REQUESTS
+                or e.code >= HTTPStatus.INTERNAL_SERVER_ERROR
+            ):
+                if attempt == MAX_ATTEMPTS:
+                    logger.error(
+                        "giving up after %d attempts: HTTP %s %s: %s",
+                        MAX_ATTEMPTS,
+                        e.code,
+                        e.reason,
+                        error_body,
+                    )
+                    return None
+                delay = RETRY_BASE_DELAY * 2 ** (attempt - 1)
+                logger.warning(
+                    "request failed (HTTP %s %s), retrying in %.1fs (attempt %d/%d)",
+                    e.code,
+                    e.reason,
+                    delay,
+                    attempt,
+                    MAX_ATTEMPTS,
+                )
+                time.sleep(delay)
+                continue
+            logger.error("HTTP %s %s: %s", e.code, e.reason, error_body)
+            if e.code == HTTPStatus.UNAUTHORIZED:
+                # MCP's OAuth flow starts here, but ijon only does static-token auth.
+                challenge = e.headers.get("WWW-Authenticate")
+                logger.error(
+                    "401 unauthorized for %s: ijon only supports static tokens "
+                    "(set them in mcp.json headers). WWW-Authenticate: %s",
+                    url,
+                    challenge or "<none>",
+                )
+            return None
+        except urllib.error.URLError as e:
+            logger.error("cannot connect to %s: %s", url, e.reason)
+            return None
+        except Exception as e:
+            logger.error("%s", e)
+            return None
 
 
 @dataclass
