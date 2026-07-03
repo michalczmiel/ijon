@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -263,18 +264,32 @@ class HttpMCPClient:
 
 
 def execute_bash_script(script: str, timeout: int) -> str:
-    try:
-        result = subprocess.run(
-            script, shell=True, capture_output=True, text=True, timeout=timeout
-        )
-        parts = [f"exit_code: {result.returncode}"]
-        if result.stdout:
-            parts.append(f"stdout:\n{result.stdout}")
-        if result.stderr:
-            parts.append(f"stderr:\n{result.stderr}")
+    # start_new_session groups the shell and its children so a timeout can kill the whole group, not just the shell.
+    with subprocess.Popen(
+        script,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # The shell is its own group leader, so its pid is the group id; ignore if the group already drained.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            return f"error: Bash script timed out after {timeout} seconds"
+
+        parts = [f"exit_code: {process.returncode}"]
+        if stdout:
+            parts.append(f"stdout:\n{stdout}")
+        if stderr:
+            parts.append(f"stderr:\n{stderr}")
         return "\n".join(parts)
-    except subprocess.TimeoutExpired:
-        return f"error: Bash script timed out after {timeout} seconds"
 
 
 def make_bash_tool(timeout: int) -> dict:
