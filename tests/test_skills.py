@@ -5,17 +5,11 @@ from ijon import (
 )
 
 
-def write_skill(root, name: str, content: str) -> None:
-    skill_dir = root / name
-    skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text(content)
-
-
 def test_missing_directory_returns_no_skills(tmp_path):
     assert load_skills_from_directory(str(tmp_path / "nope")) == []
 
 
-def test_discovers_skills_and_skips_dirs_without_skill_md(tmp_path):
+def test_discovers_skills_and_skips_dirs_without_skill_md(tmp_path, write_skill):
     write_skill(tmp_path, "alpha", "# Alpha\n\nbody")
     (tmp_path / "empty").mkdir()
 
@@ -25,7 +19,7 @@ def test_discovers_skills_and_skips_dirs_without_skill_md(tmp_path):
     assert skills[0].content == "# Alpha\n\nbody"
 
 
-def test_discovers_multiple_skills_sorted_by_name(tmp_path):
+def test_discovers_multiple_skills_sorted_by_name(tmp_path, write_skill):
     write_skill(tmp_path, "gamma", "# Gamma")
     write_skill(tmp_path, "alpha", "# Alpha")
     write_skill(tmp_path, "beta", "# Beta")
