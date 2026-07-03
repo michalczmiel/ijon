@@ -1,13 +1,10 @@
 # ijon
 
-A single-file zero-dependency agent harness written in Python.
+A single-file zero-dependency agent harness in Python 3.9+.
 
-- Zero runtime dependencies, requires Python 3.9+
-- Everything lives in `ijon.py`
 - No sessions, no history
-- Built-in bash tool
-- Built-in HTTP MCP support
-- Built-in skills support
+- Built-in bash tool, HTTP MCP, and skills
+- Built-in retries on 429/5xx with exponential backoff
 
 A learning project, not for production. Tested with the OpenRouter API.
 
@@ -19,7 +16,7 @@ Run without installing:
 uvx --from git+https://github.com/michalczmiel/ijon ijon "your prompt" --model <model>
 ```
 
-Or just copy `ijon.py` wherever you want and run it with Python 3.9+ — it's a single file with zero dependencies:
+Or copy `ijon.py` anywhere and run it:
 
 ```bash
 python ijon.py "your prompt" --model <model>
@@ -27,19 +24,15 @@ python ijon.py "your prompt" --model <model>
 
 ## Usage
 
-```bash
-usage: ijon [-h] --model MODEL [--bash] [--mcp] [--skills] [--max-iterations MAX_ITERATIONS] [--max-completion-tokens MAX_COMPLETION_TOKENS] [--jsonl] prompt
-```
-
-| Option                      | Description                                                         |
-| --------------------------- | ------------------------------------------------------------------- |
-| `--model MODEL`             | Model id to use (required)                                          |
-| `--bash`                    | Enable the bash tool                                                |
-| `--mcp`                     | Enable MCP tools from `mcp.json`                                    |
-| `--skills`                  | Enable skills from `.agents/skills`                                 |
-| `--max-iterations N`        | Max agent loop iterations (default `10`)                            |
-| `--max-completion-tokens N` | Cap output tokens per response, including reasoning (default unset) |
-| `--jsonl`                   | Emit the session as JSONL on stdout                                 |
+| Option                      | Description                                     | Default  |
+| --------------------------- | ----------------------------------------------- | -------- |
+| `--model MODEL`             | Model id to use                                 | required |
+| `--bash`                    | Enable the bash tool                            | off      |
+| `--mcp`                     | Enable MCP tools from `mcp.json`                | off      |
+| `--skills`                  | Enable skills from `.agents/skills`             | off      |
+| `--max-iterations N`        | Max agent loop iterations                       | `10`     |
+| `--max-completion-tokens N` | Cap output tokens per response, incl. reasoning | unset    |
+| `--jsonl`                   | Emit the session as JSONL on stdout             | off      |
 
 Let the model run shell commands:
 
@@ -53,7 +46,7 @@ Pipe stdin in and it's appended to the prompt:
 cat file.py | ijon "explain this" --model <model>
 ```
 
-With `--jsonl`, stdout carries only the JSONL session and human-readable logs go to stderr, so this stays a clean save:
+With `--jsonl`, stdout is pure JSONL (logs go to stderr), so redirecting saves a clean session:
 
 ```bash
 ijon "your prompt" --model <model> --jsonl > session.jsonl
@@ -63,11 +56,13 @@ ijon "your prompt" --model <model> --jsonl > session.jsonl
 
 Set via environment variables (not auto-loaded from `.env`):
 
-- `OPENAI_BASE_URL` (required)
-- `OPENAI_API_KEY`
-- `IJON_BASH_TIMEOUT` (default `120`)
-- `IJON_MAX_ATTEMPTS` — HTTP attempts before giving up, retrying 429/5xx (default `3`)
-- `IJON_RETRY_BASE_DELAY` — seconds before the first retry, doubling each attempt (default `1.0`)
+| Variable                | Description                                      | Default  |
+| ----------------------- | ------------------------------------------------ | -------- |
+| `OPENAI_BASE_URL`       | API base URL                                     | required |
+| `OPENAI_API_KEY`        | Bearer token; header omitted if unset            | —        |
+| `IJON_BASH_TIMEOUT`     | Bash tool timeout, seconds                       | `120`    |
+| `IJON_MAX_ATTEMPTS`     | HTTP attempts, retrying 429/5xx                  | `3`      |
+| `IJON_RETRY_BASE_DELAY` | Seconds before first retry, doubles each attempt | `1.0`    |
 
 ## MCP
 
@@ -84,9 +79,7 @@ Drop a `mcp.json` next to where you run `ijon` and pass `--mcp` to enable it. Ea
 }
 ```
 
-`headers` is optional. Only the HTTP transport is supported. `url` and `headers` values expand `${VAR}` and `${VAR:-default}` from the environment, so you can keep secrets out of the file.
-
-Auth is static-token only (whatever you put in `headers`); the interactive OAuth flow is not supported, but both stateful and stateless servers work.
+`headers` is optional; values in `url` and `headers` expand `${VAR}` / `${VAR:-default}` from the environment, keeping secrets out of the file. HTTP transport only, static-token auth only (no OAuth); stateful and stateless servers both work.
 
 ## Skills
 
