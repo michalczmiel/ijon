@@ -60,8 +60,8 @@ class HttpTransport:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as response:
                     data = response.read().decode("utf-8")
-                    headers = response.headers
-                return data, headers
+                    response_headers = response.headers
+                return data, response_headers
             except socket.timeout:
                 if self._retry(attempt, f"request timed out after {self.timeout}s"):
                     continue
