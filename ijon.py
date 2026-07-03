@@ -399,6 +399,11 @@ def run_agent(
     iteration_count = 0
     messages = [{"role": "user", "content": args.prompt}]
 
+    def emit(event_type: str, **fields) -> None:
+        """Print one JSONL event to stdout, a no-op unless --jsonl is set."""
+        if args.jsonl:
+            print(json.dumps({"type": event_type, **fields}), flush=True)
+
     tools_by_name = {tool["name"]: tool for tool in tools}
     tool_schemas = [
         {
@@ -412,8 +417,7 @@ def run_agent(
         for tool in tools
     ]
 
-    if args.jsonl:
-        print(json.dumps({"type": "user", "message": messages[0]}), flush=True)
+    emit("user", message=messages[0])
 
     while iteration_count < args.max_iterations:
         iteration_count += 1
@@ -429,8 +433,7 @@ def run_agent(
             logger.error("failed to get response")
             return False
 
-        if args.jsonl:
-            print(json.dumps({"type": "completion", "response": response}), flush=True)
+        emit("completion", response=response)
 
         try:
             message = response["choices"][0]["message"]
@@ -452,7 +455,9 @@ def run_agent(
             return True
 
         for tool_call in tool_calls:
-            messages.append(execute_tool_call(tool_call, tools_by_name))
+            tool_result = execute_tool_call(tool_call, tools_by_name)
+            messages.append(tool_result)
+            emit("tool_result", message=tool_result)
 
     logger.error("reached max iterations (%s)", args.max_iterations)
     return False

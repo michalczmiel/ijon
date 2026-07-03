@@ -113,6 +113,14 @@ def test_emits_the_whole_conversation_as_jsonl(run, capsys):
     assert records == [
         {"type": "user", "message": {"role": "user", "content": "hi"}},
         {"type": "completion", "response": tool_response},
+        {
+            "type": "tool_result",
+            "message": {
+                "role": "tool",
+                "content": '"fake output"',
+                "tool_call_id": "call_1",
+            },
+        },
         {"type": "completion", "response": final_response},
     ]
 
