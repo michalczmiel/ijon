@@ -1,3 +1,4 @@
+from factories import assistant_message
 from pytest_httpserver import HTTPServer
 
 from ijon import HttpTransport, OpenAICompatibleClient
@@ -6,7 +7,7 @@ from ijon import HttpTransport, OpenAICompatibleClient
 def test_posts_the_body_to_the_chat_completions_endpoint(
     httpserver: HTTPServer, transport: HttpTransport
 ):
-    answer = {"choices": [{"message": {"role": "assistant", "content": "hi"}}]}
+    answer = assistant_message("hi")
     httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
         answer
     )

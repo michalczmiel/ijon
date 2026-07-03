@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from factories import assistant_message, tool_call
 from pytest_httpserver import HTTPServer
 
 IJON = Path(__file__).resolve().parent.parent / "ijon.py"
@@ -28,11 +29,10 @@ def tool_names_offered(httpserver: HTTPServer) -> list[str]:
     return [t["function"]["name"] for t in request.get_json().get("tools", [])]
 
 
-def test_runs_the_prompt_against_the_configured_endpoint(httpserver: HTTPServer):
-    answer = {"choices": [{"message": {"role": "assistant", "content": "42"}}]}
-    httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
-        answer
-    )
+def test_runs_the_prompt_against_the_configured_endpoint(
+    httpserver: HTTPServer, openai_endpoint
+):
+    openai_endpoint(assistant_message("42"))
 
     result = run_ijon(
         "hello",
@@ -54,38 +54,9 @@ def test_missing_base_url_exits_nonzero():
     assert "OPENAI_BASE_URL" in result.stderr
 
 
-def _tool_call(script: str) -> dict:
-    return {
-        "choices": [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": "execute_bash_script",
-                                "arguments": json.dumps({"script": script}),
-                            },
-                        }
-                    ],
-                }
-            }
-        ]
-    }
-
-
-def test_bash_flag_wires_the_tool_and_runs_it(httpserver: HTTPServer):
+def test_bash_flag_wires_the_tool_and_runs_it(httpserver: HTTPServer, openai_endpoint):
     # --bash must both advertise the tool to the model and execute its calls.
-    done = {"choices": [{"message": {"role": "assistant", "content": "done"}}]}
-    httpserver.expect_ordered_request(
-        "/v1/chat/completions", method="POST"
-    ).respond_with_json(_tool_call("echo wired"))
-    httpserver.expect_ordered_request(
-        "/v1/chat/completions", method="POST"
-    ).respond_with_json(done)
+    openai_endpoint(tool_call("echo wired"), assistant_message("done"))
 
     result = run_ijon(
         "hi",
@@ -105,15 +76,12 @@ def test_bash_flag_wires_the_tool_and_runs_it(httpserver: HTTPServer):
 
 
 def test_skills_flag_discovers_and_offers_skills(
-    httpserver: HTTPServer, tmp_path: Path, write_skill
+    httpserver: HTTPServer, tmp_path: Path, write_skill, openai_endpoint
 ):
     # main() must load .agents/skills from the cwd and register the skill tool.
     write_skill(tmp_path / ".agents" / "skills", "greet", "# Greet\n\nsay hi")
 
-    done = {"choices": [{"message": {"role": "assistant", "content": "done"}}]}
-    httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_json(
-        done
-    )
+    openai_endpoint(assistant_message("done"))
 
     result = run_ijon(
         "hi",

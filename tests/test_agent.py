@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass, field
 
 import pytest
+from factories import assistant_message, tool_call
 
 from ijon import Arguments, run_agent
 
@@ -26,33 +27,6 @@ class FakeClient:
             }
         )
         return self.responses.pop(0)
-
-
-def message(content: str) -> dict:
-    return {"choices": [{"message": {"role": "assistant", "content": content}}]}
-
-
-def tool(script: str) -> dict:
-    return {
-        "choices": [
-            {
-                "message": {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": "execute_bash_script",
-                                "arguments": json.dumps({"script": script}),
-                            },
-                        }
-                    ],
-                }
-            }
-        ]
-    }
 
 
 @pytest.fixture
@@ -81,7 +55,7 @@ def run():
 
 def test_shows_the_models_answer_to_the_user(run, caplog):
     caplog.set_level(logging.INFO, logger="ijon")
-    run(FakeClient([message("the answer is 42")]))
+    run(FakeClient([assistant_message("the answer is 42")]))
 
     assert "the answer is 42" in caplog.text
 
@@ -105,8 +79,8 @@ def test_shows_the_models_thinking_to_the_user(run, caplog):
 
 
 def test_emits_the_whole_conversation_as_jsonl(run, capsys):
-    tool_response = tool("echo hi")
-    final_response = message("done")
+    tool_response = tool_call("echo hi")
+    final_response = assistant_message("done")
     run(FakeClient([tool_response, final_response]), prompt="hi", jsonl=True)
 
     records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
@@ -126,7 +100,7 @@ def test_emits_the_whole_conversation_as_jsonl(run, capsys):
 
 
 def test_feeds_the_tool_result_back_to_the_model(run):
-    client = FakeClient([tool("echo hi"), message("done")])
+    client = FakeClient([tool_call("echo hi"), assistant_message("done")])
     run(client)
 
     # The model must receive the tool's output back, tagged to its call.
@@ -146,7 +120,7 @@ def test_survives_an_invalid_response(run, caplog):
 
 def test_stops_instead_of_looping_forever(run, caplog):
     # A model stuck always asking for another command must still terminate.
-    client = FakeClient([tool("echo loop") for _ in range(10)])
+    client = FakeClient([tool_call("echo loop") for _ in range(10)])
 
     succeeded = run(client, max_iterations=3)
 
@@ -156,7 +130,7 @@ def test_stops_instead_of_looping_forever(run, caplog):
 
 
 def test_reports_success_when_the_model_finishes(run):
-    assert run(FakeClient([message("done")])) is True
+    assert run(FakeClient([assistant_message("done")])) is True
 
 
 def test_reports_failure_when_the_request_fails(run, caplog):

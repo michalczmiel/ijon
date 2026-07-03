@@ -2,9 +2,24 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
+from pytest_httpserver import HTTPServer
 
 import ijon
 from ijon import HttpTransport
+
+
+@pytest.fixture
+def openai_endpoint(httpserver: HTTPServer) -> Callable[..., HTTPServer]:
+    """Register canned chat-completions responses, served in call order."""
+
+    def _register(*responses: dict) -> HTTPServer:
+        for response in responses:
+            httpserver.expect_ordered_request(
+                "/v1/chat/completions", method="POST"
+            ).respond_with_json(response)
+        return httpserver
+
+    return _register
 
 
 @pytest.fixture(autouse=True)
