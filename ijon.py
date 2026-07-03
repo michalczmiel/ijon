@@ -125,7 +125,11 @@ class OpenAICompatibleClient:
         if response is None:
             return None
         data, _ = response
-        return json.loads(data)
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError:
+            logger.error("non-JSON response body: %s", data[:200])
+            return None
 
 
 def _env_int(name: str, default: int) -> int:
@@ -217,7 +221,7 @@ class HttpMCPClient:
         if not response:
             return None
         data, _ = response
-        parsed = self._extract_sse_data(data)
+        parsed = self._parse_response(data)
         if not parsed:
             return None
         return parsed.get("result")
@@ -245,11 +249,22 @@ class HttpMCPClient:
 
         return True
 
-    def _extract_sse_data(self, raw: str) -> Optional[dict]:
+    def _parse_response(self, raw: str) -> Optional[dict]:
+        # try JSON response first, if not fallback to SSE
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
         for line in raw.split("\n"):
             line = line.strip()
             if line.startswith("data:"):
-                return json.loads(line.removeprefix("data:"))
+                try:
+                    return json.loads(line.removeprefix("data:"))
+                except json.JSONDecodeError:
+                    logger.error("non-JSON SSE data: %s", line[:200])
+                    return None
+        logger.error("unparseable MCP response: %s", raw[:200])
+        return None
 
     def list_tools(self) -> list[dict]:
         result = self._send("tools/list")

@@ -90,3 +90,17 @@ def test_returns_none_on_http_error(httpserver: HTTPServer, transport: HttpTrans
     result = client.chat_completions("test-model", [])
 
     assert result is None
+
+
+def test_returns_none_on_unparseable_body(
+    httpserver: HTTPServer, transport: HttpTransport
+):
+    # A 200 with a non-JSON body (e.g. proxy HTML, truncated response) must not crash.
+    httpserver.expect_request("/v1/chat/completions").respond_with_data(
+        "<html>502 Bad Gateway</html>", status=200
+    )
+
+    client = OpenAICompatibleClient(httpserver.url_for(""), transport)
+    result = client.chat_completions("test-model", [])
+
+    assert result is None
