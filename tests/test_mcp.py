@@ -95,6 +95,18 @@ def test_unparseable_body_degrades_gracefully(httpserver, transport: HttpTranspo
     assert client.list_tools() == []
 
 
+def test_send_surfaces_jsonrpc_error_instead_of_swallowing_it_into_none(
+    client, caplog
+):
+    client.connect()
+
+    with caplog.at_level("ERROR"):
+        result = client._send("resources/read", {"uri": "file:///nope"})
+
+    assert result is not None, "JSON-RPC error swallowed into None"
+    assert caplog.text, "JSON-RPC error not logged"
+
+
 def test_expand_env_vars_substitutes_set_variable(monkeypatch):
     monkeypatch.setenv("API_KEY", "secret")
     assert expand_env_vars("Bearer ${API_KEY}") == "Bearer secret"

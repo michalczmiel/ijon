@@ -224,6 +224,10 @@ class HttpMCPClient:
         parsed = self._parse_response(data)
         if not parsed:
             return None
+        error = parsed.get("error")
+        if error is not None:
+            logger.error("MCP %s failed: %s", method, error)
+            return {"error": error}
         return parsed.get("result")
 
     def connect(self) -> bool:
