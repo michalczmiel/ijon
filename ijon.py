@@ -532,7 +532,10 @@ def load_mcp_clients_from_config(
         return []
 
     clients = []
-    for server in data.get("mcpServers", {}).values():
+    for name, server in data.get("mcpServers", {}).items():
+        if "url" not in server:
+            logger.error("mcp server %r missing required 'url', skipping", name)
+            continue
         url = expand_env_vars(server["url"])
         headers = server.get("headers")
         if headers is not None:

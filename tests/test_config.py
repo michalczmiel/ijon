@@ -131,3 +131,21 @@ def test_load_mcp_clients_expands_url_and_headers(
     assert len(clients) == 1
     assert clients[0].url == "https://api.example.com/mcp"
     assert clients[0].headers["Authorization"] == "Bearer secret"
+
+
+def test_load_mcp_clients_skips_server_missing_url(
+    tmp_path, monkeypatch, transport: HttpTransport
+):
+    monkeypatch.chdir(tmp_path)
+    config = {
+        "mcpServers": {
+            "broken": {"headers": {"Authorization": "Bearer x"}},
+            "ok": {"url": "https://api.example.com/mcp"},
+        }
+    }
+    (tmp_path / "mcp.json").write_text(json.dumps(config))
+
+    clients = load_mcp_clients_from_config(transport)
+
+    assert len(clients) == 1
+    assert clients[0].url == "https://api.example.com/mcp"
