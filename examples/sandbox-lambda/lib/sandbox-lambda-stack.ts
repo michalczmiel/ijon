@@ -1,16 +1,16 @@
+import * as path from "path";
 import * as cdk from "aws-cdk-lib/core";
+import * as lambda from "aws-cdk-lib/aws-lambda";
 import { Construct } from "constructs";
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
 
 export class SandboxLambdaStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // The code that defines your stack goes here
-
-    // example resource
-    // const queue = new sqs.Queue(this, 'SandboxLambdaQueue', {
-    //   visibilityTimeout: cdk.Duration.seconds(300)
-    // });
+    new lambda.Function(this, "AgentRunner", {
+      runtime: lambda.Runtime.PYTHON_3_13,
+      handler: "handler.handler",
+      code: lambda.Code.fromAsset(path.join(__dirname, "../src/agent-runner")),
+    });
   }
 }
