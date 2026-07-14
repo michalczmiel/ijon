@@ -8,7 +8,9 @@
     "test": "vitest run",
     "cdk": "cdk",
     "fetch:ijon": "bash scripts/fetch-ijon.sh",
-    "db:create": "bash scripts/create-table.sh",
+    "db:create": "bash scripts/dynamodb-create.sh",
+    "db:scan": "bash scripts/dynamodb-scan.sh",
+    "db:query": "bash scripts/dynamodb-query.sh",
     "local:invoke": "pnpm fetch:ijon && cdk synth --quiet && sam local invoke -t ./cdk.out/SandboxLambdaStack.template.json --env-vars env.local.json --docker-network ijon --event event.local.json AgentRunner"
   },
   "devDependencies": {

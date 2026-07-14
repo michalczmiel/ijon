@@ -33,14 +33,22 @@ pnpm local:invoke                          # fetches ijon.py, synths, invokes
 joins the function container to the compose network so `AWS_ENDPOINT_URL_DYNAMODB` can
 address DynamoDB Local as `http://dynamodb:8000`.
 
-Read a session back:
+List what is stored, one row per event:
 
 ```sh
-aws dynamodb query --endpoint-url http://localhost:8000 \
-  --table-name AgentSession \
-  --key-condition-expression 'PK = :pk' \
-  --expression-attribute-values '{":pk": {"S": "<session-id>"}}'
+pnpm db:scan
 ```
+
+Read events back, `event` holding the raw JSONL line:
+
+```sh
+pnpm db:query --session <uuid>                        # one session, in order
+pnpm db:query --session <uuid> --timestamp 2026-07-14 # that session, from a point in time
+pnpm db:query --timestamp 2026-07-14T19:21            # all sessions, from a point in time
+```
+
+`--timestamp` is an ISO-8601 prefix. With a session it narrows the sort key, without one
+it falls back to a scan, since the partition key is what makes the read cheap.
 
 ## Useful commands
 
