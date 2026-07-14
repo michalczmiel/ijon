@@ -1,0 +1,3 @@
+{
+  "body": "{\"prompt\": \"List the files in the current directory and tell me what python version you are running on\", \"model\": \"anthropic/claude-sonnet-4.6\"}"
+}

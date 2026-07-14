@@ -6,3 +6,9 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# vendored by scripts/fetch-ijon.sh
+src/agent-runner/ijon.py
+
+# holds the API key, copy it from env.local.example.json
+env.local.json

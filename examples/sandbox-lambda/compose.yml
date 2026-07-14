@@ -7,6 +7,14 @@ services:
       - "8000:8000"
     volumes:
       - dynamodb-data:/home/dynamodblocal
+    networks:
+      - ijon
 
 volumes:
   dynamodb-data:
+
+# sam local invoke joins this network so the function container can reach
+# dynamodb by name rather than through the host
+networks:
+  ijon:
+    name: ijon
