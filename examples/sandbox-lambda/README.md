@@ -10,10 +10,14 @@ sandbox. Override the source with `IJON_URL`.
 
 ## Session table
 
-| key | value                               |
-| --- | ----------------------------------- |
-| PK  | session uuid, minted per invocation |
-| SK  | ISO-8601 timestamp of the event     |
+| key | value                                                 |
+| --- | ----------------------------------------------------- |
+| PK  | session uuid, minted per invocation                   |
+| SK  | `2026-07-14T19:21:34.197691Z`, when the event arrived |
+
+The sort key is always UTC and always fixed width — microseconds padded to six digits, `Z`
+rather than `+00:00`. DynamoDB sorts it as a string, so anything that varies the width or
+the offset would sort out of event order.
 
 The function can only write to the table, never read it — the CDK test enforces that.
 

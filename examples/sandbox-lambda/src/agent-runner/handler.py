@@ -21,7 +21,9 @@ def store_event(batch, session_id: str, event: dict) -> None:
     batch.put_item(
         Item={
             "PK": session_id,
-            "SK": datetime.datetime.now(datetime.UTC).isoformat(),
+            # fixed-width UTC: microseconds are always padded, so the sort key
+            # sorts lexicographically in event order
+            "SK": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
             "type": event["type"],
             # events carry floats and empty strings, which DynamoDB rejects
             "event": json.dumps(event),
