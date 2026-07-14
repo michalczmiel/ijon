@@ -1,6 +1,7 @@
+import { expect, test } from "vitest";
 import * as cdk from "aws-cdk-lib/core";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { SandboxLambdaStack } from "../lib/sandbox-lambda-stack";
+import { SandboxLambdaStack } from "../lib/sandbox-lambda-stack.ts";
 
 function synth(): Template {
   const app = new cdk.App();

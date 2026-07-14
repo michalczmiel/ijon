@@ -1,5 +1,5 @@
 {
-  "app": "npx ts-node --prefer-ts-exts bin/sandbox-lambda.ts",
+  "app": "node bin/sandbox-lambda.ts",
   "watch": {
     "include": ["**"],
     "exclude": [

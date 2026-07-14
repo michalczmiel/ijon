@@ -1,21 +1,19 @@
 {
   "name": "sandbox-lambda",
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
-    "test": "jest",
+    "build": "tsc --noEmit",
+    "watch": "tsc --noEmit -w",
+    "test": "vitest run",
     "cdk": "cdk",
     "local:invoke": "cdk synth --quiet && sam local invoke -t ./cdk.out/SandboxLambdaStack.template.json --env-vars env.local.json AgentRunner"
   },
   "devDependencies": {
-    "@types/jest": "^30",
     "@types/node": "^24.10.1",
-    "jest": "^30",
-    "ts-jest": "^29",
     "aws-cdk": "2.1129.0",
-    "ts-node": "^10.9.2",
-    "typescript": "~5.9.3"
+    "typescript": "~7.0.2",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.260.0",

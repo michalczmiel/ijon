@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib/core";
-import { SandboxLambdaStack } from "../lib/sandbox-lambda-stack";
+import { SandboxLambdaStack } from "../lib/sandbox-lambda-stack.ts";
 
 const app = new cdk.App();
 new SandboxLambdaStack(app, "SandboxLambdaStack", {

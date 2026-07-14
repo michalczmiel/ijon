@@ -16,7 +16,9 @@ export class SandboxLambdaStack extends cdk.Stack {
     const agentRunnerFunction = new lambda.Function(this, "AgentRunner", {
       runtime: lambda.Runtime.PYTHON_3_13,
       handler: "handler.handler",
-      code: lambda.Code.fromAsset(path.join(__dirname, "../src/agent-runner")),
+      code: lambda.Code.fromAsset(
+        path.join(import.meta.dirname, "../src/agent-runner"),
+      ),
       environment: {
         AGENT_SESSION_TABLE_NAME: agentSessionTable.tableName,
       },
