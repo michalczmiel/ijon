@@ -1,0 +1,20 @@
+services:
+  dynamodb:
+    image: amazon/dynamodb-local:3.3.0
+    working_dir: /home/dynamodblocal
+    command: -jar DynamoDBLocal.jar -sharedDb -dbPath .
+    ports:
+      - "8000:8000"
+    volumes:
+      - dynamodb-data:/home/dynamodblocal
+    networks:
+      - ijon
+
+volumes:
+  dynamodb-data:
+
+# sam local invoke joins this network so the function container can reach
+# dynamodb by name rather than through the host
+networks:
+  ijon:
+    name: ijon
