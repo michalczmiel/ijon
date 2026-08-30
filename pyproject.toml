@@ -24,6 +24,8 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    # provided by the Lambda runtime, dev-only so ty can check the example
+    "boto3>=1.40.0; python_version >= '3.10'",
     "e2b>=2.10.2",
     "fastmcp>=3.4.2; python_version >= '3.10'",
     "pytest>=9.1.1; python_version >= '3.10'",

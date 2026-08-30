@@ -23,7 +23,9 @@ def store_event(batch, session_id: str, event: dict) -> None:
             "PK": session_id,
             # fixed-width UTC: microseconds are always padded, so the sort key
             # sorts lexicographically in event order
-            "SK": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "SK": datetime.datetime.now(datetime.timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%fZ"
+            ),
             "type": event["type"],
             # events carry floats and empty strings, which DynamoDB rejects
             "event": json.dumps(event),
@@ -56,6 +58,8 @@ def handler(event, context):
     # timestamp each event as it arrives, so the sort key is the session timeline;
     # the Lambda timeout is the backstop if the agent never finishes
     count = 0
+    # stdout is a pipe (stdout=PIPE above), never None
+    assert process.stdout is not None
     with table.batch_writer() as batch:
         for line in process.stdout:
             if not line.strip():
