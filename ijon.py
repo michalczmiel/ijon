@@ -236,8 +236,8 @@ class HttpMCPClient:
             "id": next(self._ids),
             "method": "initialize",
             "params": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {"elicitation": {}},
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
                 "clientInfo": {"name": "ijon", "version": "0.1.0"},
             },
         }
