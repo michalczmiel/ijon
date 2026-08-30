@@ -10,22 +10,13 @@ A learning project, not for production. Tested with the OpenRouter API.
 
 ## Install
 
-It's one file with no dependencies, so grab it and run it:
+It's one file with no dependencies:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/michalczmiel/ijon/main/ijon.py -o ijon.py
-python3 ijon.py "your prompt" --model <model>
 ```
 
-Put it on your `PATH` to call it as `ijon`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/michalczmiel/ijon/main/ijon.py -o ~/.local/bin/ijon
-chmod +x ~/.local/bin/ijon
-ijon "your prompt" --model <model>
-```
-
-Or, if you have [uv](https://docs.astral.sh/uv/), skip the download:
+Or, with [uv](https://docs.astral.sh/uv/) to install globally:
 
 ```bash
 uvx --from git+https://github.com/michalczmiel/ijon ijon "your prompt" --model <model>
