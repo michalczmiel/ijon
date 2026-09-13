@@ -1,27 +1,52 @@
 import subprocess
 
-from ijon import execute_bash_script
+from conftest import tool_results
+from factories import assistant_message, bash_call
 
 
-def test_reports_exit_code_and_output():
-    result = execute_bash_script("echo hi", timeout=10)
+def run_script(ijon, openai_endpoint, script: str, **env: str) -> str:
+    """Have the model call the bash tool once and return what it got back."""
+    openai_endpoint(bash_call(script), assistant_message("done"))
 
-    assert "exit_code: 0" in result
-    assert "stdout:\nhi" in result
+    result = ijon.run("hi", "--model", "test-model", "--bash", "--jsonl", env=env)
 
-
-def test_times_out():
-    result = execute_bash_script("sleep 5", timeout=1)
-
-    assert "timed out after 1 seconds" in result
+    assert result.returncode == 0, result.stderr
+    return tool_results(result)[0]["content"]
 
 
-def test_timeout_leaves_no_orphaned_grandchildren():
+def test_reports_exit_code_and_output(ijon, openai_endpoint):
+    output = run_script(ijon, openai_endpoint, "echo hi")
+
+    assert "exit_code: 0" in output
+    assert "stdout:\nhi" in output
+
+
+def test_reports_stderr_and_failing_exit_code(ijon, openai_endpoint):
+    output = run_script(ijon, openai_endpoint, "echo oops >&2; exit 3")
+
+    assert output == "exit_code: 3\nstderr:\noops\n"
+
+
+def test_omits_empty_streams(ijon, openai_endpoint):
+    output = run_script(ijon, openai_endpoint, "true")
+
+    assert output == "exit_code: 0"
+
+
+def test_times_out(ijon, openai_endpoint):
+    output = run_script(ijon, openai_endpoint, "sleep 5", IJON_BASH_TIMEOUT="1")
+
+    assert "timed out after 1 seconds" in output
+
+
+def test_timeout_leaves_no_orphaned_grandchildren(ijon, openai_endpoint):
     # On timeout only the shell is killed, so backgrounded grandchildren are orphaned.
     marker = "sleep 41337"  # unique so pgrep only matches our grandchild
     try:
-        result = execute_bash_script(f"{marker} & echo started", timeout=1)
-        assert "timed out after 1 seconds" in result
+        output = run_script(
+            ijon, openai_endpoint, f"{marker} & echo started", IJON_BASH_TIMEOUT="1"
+        )
+        assert "timed out after 1 seconds" in output
 
         alive = (
             subprocess.run(

@@ -33,3 +33,17 @@ dev = [
     "ruff>=0.15.16; python_version >= '3.10'",
     "ty>=0.0.56; python_version >= '3.10'",
 ]
+
+[tool.hatch.build.targets.wheel]
+only-include = ["python/ijon.py"]
+sources = ["python"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["python/ijon.py", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python"]
+
+[tool.ty.environment]
+root = ["python", "tests"]

@@ -1,0 +1,21 @@
+{
+  "name": "ijon",
+  "version": "0.1.0",
+  "description": "Single-file zero-dependency AI harness (TypeScript port)",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=24.2"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check",
+    "format": "biome format --write"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.13",
+    "@types/node": "^24.10.1",
+    "typescript": "~7.0.2"
+  }
+}

@@ -1,97 +1,60 @@
-import json
-import logging
-from dataclasses import dataclass, field
-
-import pytest
-from factories import assistant_message, tool_call
-
-from ijon import Arguments, run_agent
+from conftest import completion_requests, events, tool_results
+from factories import assistant_message, bash_call
 
 
-@dataclass
-class FakeClient:
-    """A scripted model: hands back canned responses turn by turn."""
+def test_shows_the_models_answer_to_the_user(ijon, openai_endpoint):
+    openai_endpoint(assistant_message("the answer is 42"))
 
-    responses: list
-    turns: int = 0
-    bodies: list = field(default_factory=list)
+    result = ijon.run("hi", "--model", "test-model")
 
-    def chat_completions(self, model, messages, tools=None, max_completion_tokens=None):
-        self.turns += 1
-        self.bodies.append(
-            {
-                "model": model,
-                "messages": messages,
-                "tools": tools,
-                "max_completion_tokens": max_completion_tokens,
-            }
-        )
-        return self.responses.pop(0)
+    assert result.returncode == 0, result.stderr
+    assert "the answer is 42" in result.stderr
 
 
-@pytest.fixture
-def run():
-    """Drive run_agent with sensible defaults; pass the scripted client in."""
-
-    def _run(client, *, prompt="hi", max_iterations=10, jsonl=False):
-        args = Arguments(
-            prompt=prompt,
-            model="test-model",
-            max_iterations=max_iterations,
-            jsonl=jsonl,
-        )
-        tools = [
-            {
-                "name": "execute_bash_script",
-                "description": "a fake tool",
-                "parameters": {},
-                "execute": lambda args: "fake output",
-            }
-        ]
-        return run_agent(args, client, tools)
-
-    return _run
-
-
-def test_shows_the_models_answer_to_the_user(run, caplog):
-    caplog.set_level(logging.INFO, logger="ijon")
-    run(FakeClient([assistant_message("the answer is 42")]))
-
-    assert "the answer is 42" in caplog.text
-
-
-def test_shows_the_models_thinking_to_the_user(run, caplog):
-    caplog.set_level(logging.INFO, logger="ijon")
-    response = {
-        "choices": [
-            {
-                "message": {
-                    "role": "assistant",
-                    "reasoning_content": "let me work it out",
-                    "content": "the answer is 42",
+def test_shows_the_models_thinking_to_the_user(ijon, openai_endpoint):
+    openai_endpoint(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "reasoning_content": "let me work it out",
+                        "content": "the answer is 42",
+                    }
                 }
-            }
-        ]
-    }
-    run(FakeClient([response]))
+            ]
+        }
+    )
 
-    assert "let me work it out" in caplog.text
+    result = ijon.run("hi", "--model", "test-model")
+
+    assert "let me work it out" in result.stderr
 
 
-def test_emits_the_whole_conversation_as_jsonl(run, capsys):
-    tool_response = tool_call("echo hi")
+def test_stdout_stays_empty_without_jsonl(ijon, openai_endpoint):
+    openai_endpoint(assistant_message("the answer is 42"))
+
+    result = ijon.run("hi", "--model", "test-model")
+
+    assert result.stdout == ""
+
+
+def test_emits_the_whole_conversation_as_jsonl(ijon, openai_endpoint):
+    tool_response = bash_call("echo hi")
     final_response = assistant_message("done")
-    run(FakeClient([tool_response, final_response]), prompt="hi", jsonl=True)
+    openai_endpoint(tool_response, final_response)
 
-    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert records == [
+    result = ijon.run("hi", "--model", "test-model", "--bash", "--jsonl")
+
+    assert result.returncode == 0, result.stderr
+    assert events(result) == [
         {"type": "user", "message": {"role": "user", "content": "hi"}},
         {"type": "completion", "response": tool_response},
         {
             "type": "tool_result",
             "message": {
                 "role": "tool",
-                "content": "fake output",
+                "content": "exit_code: 0\nstdout:\nhi\n",
                 "tool_call_id": "call_1",
             },
         },
@@ -99,41 +62,62 @@ def test_emits_the_whole_conversation_as_jsonl(run, capsys):
     ]
 
 
-def test_feeds_the_tool_result_back_to_the_model(run):
-    client = FakeClient([tool_call("echo hi"), assistant_message("done")])
-    run(client)
+def test_feeds_the_tool_result_back_to_the_model(ijon, httpserver, openai_endpoint):
+    openai_endpoint(bash_call("echo hi"), assistant_message("done"))
+
+    ijon.run("hi", "--model", "test-model", "--bash")
 
     # The model must receive the tool's output back, tagged to its call.
-    messages = client.bodies[1]["messages"]
+    messages = completion_requests(httpserver)[1].get_json()["messages"]
     tool_msg = next(m for m in messages if m["role"] == "tool")
     assert tool_msg["tool_call_id"] == "call_1"
-    assert "fake output" in tool_msg["content"]
+    assert "hi" in tool_msg["content"]
 
 
-def test_survives_an_invalid_response(run, caplog):
-    succeeded = run(FakeClient([{"unexpected": "shape"}]))
+def test_keeps_the_assistant_turn_in_the_conversation(
+    ijon, httpserver, openai_endpoint
+):
+    tool_response = bash_call("echo hi")
+    openai_endpoint(tool_response, assistant_message("done"))
+
+    ijon.run("hi", "--model", "test-model", "--bash")
+
+    messages = completion_requests(httpserver)[1].get_json()["messages"]
+    assert messages[0] == {"role": "user", "content": "hi"}
+    assert messages[1] == tool_response["choices"][0]["message"]
+    assert [m["role"] for m in messages] == ["user", "assistant", "tool"]
+
+
+def test_survives_an_invalid_response(ijon, openai_endpoint):
+    openai_endpoint({"unexpected": "shape"})
+
+    result = ijon.run("hi", "--model", "test-model")
 
     # No crash; the failure is logged for the user and reported as a failure.
-    assert "response" in caplog.text
-    assert succeeded is False
+    assert result.returncode == 1
+    assert "response" in result.stderr
 
 
-def test_stops_instead_of_looping_forever(run, caplog):
+def test_stops_instead_of_looping_forever(ijon, httpserver, openai_endpoint):
     # A model stuck always asking for another command must still terminate.
-    client = FakeClient([tool_call("echo loop") for _ in range(10)])
+    openai_endpoint(*[bash_call("echo loop") for _ in range(10)])
 
-    succeeded = run(client, max_iterations=3)
+    result = ijon.run(
+        "hi", "--model", "test-model", "--bash", "--jsonl", "--max-iterations", "3"
+    )
 
-    assert client.turns == 3
-    assert "max iterations" in caplog.text
-    assert succeeded is False
+    assert result.returncode == 1
+    assert len(completion_requests(httpserver)) == 3
+    assert len(tool_results(result)) == 3
+    assert "max iterations" in result.stderr
 
 
-def test_reports_success_when_the_model_finishes(run):
-    assert run(FakeClient([assistant_message("done")])) is True
+def test_reports_failure_when_the_request_fails(ijon, httpserver):
+    httpserver.expect_request("/v1/chat/completions").respond_with_data(
+        "boom", status=400
+    )
 
+    result = ijon.run("hi", "--model", "test-model")
 
-def test_reports_failure_when_the_request_fails(run, caplog):
-    # chat_completions returning None (e.g. network/HTTP error) is a failure.
-    assert run(FakeClient([None])) is False
-    assert "failed to get response" in caplog.text
+    assert result.returncode == 1
+    assert "failed to get response" in result.stderr

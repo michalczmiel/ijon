@@ -1,61 +1,60 @@
-import json
-
-from ijon import execute_tool_call
-
-
-def call(name: str, arguments) -> dict:
-    return {
-        "id": "call_1",
-        "type": "function",
-        "function": {"name": name, "arguments": arguments},
-    }
+from conftest import tool_results
+from factories import assistant_message, tool_call, tool_calls
 
 
-def tool(name: str, execute) -> dict:
-    return {"name": name, "description": "", "parameters": {}, "execute": execute}
+def test_string_result_is_not_double_encoded(ijon, openai_endpoint):
+    openai_endpoint(tool_call({"script": "echo hi"}), assistant_message("done"))
+
+    result = ijon.run("hi", "--model", "test-model", "--bash", "--jsonl")
+
+    # A bash result is raw text, not a JSON-quoted string.
+    assert tool_results(result)[0]["content"] == "exit_code: 0\nstdout:\nhi\n"
 
 
-def test_runs_the_matching_tool_with_parsed_args():
-    received = {}
-    tools = {"echo": tool("echo", lambda args: received.update(args) or "ok")}
+def test_reports_unknown_tool(ijon, openai_endpoint):
+    openai_endpoint(tool_call({}, name="nope"), assistant_message("done"))
 
-    msg = execute_tool_call(call("echo", json.dumps({"text": "hi"})), tools)
+    result = ijon.run("hi", "--model", "test-model", "--bash", "--jsonl")
 
-    assert received == {"text": "hi"}
-    assert msg["tool_call_id"] == "call_1"
-    assert "ok" in msg["content"]
-
-
-def test_string_result_is_not_double_encoded():
-    output = "exit_code: 0\nstdout:\nhi"
-    tools = {"echo": tool("echo", lambda args: output)}
-
-    msg = execute_tool_call(call("echo", json.dumps({})), tools)
-
-    assert msg["content"] == output
+    assert result.returncode == 0, result.stderr
+    (tool_msg,) = tool_results(result)
+    assert tool_msg["tool_call_id"] == "call_1"
+    assert "unknown tool 'nope'" in tool_msg["content"]
 
 
-def test_reports_unknown_tool():
-    msg = execute_tool_call(call("nope", json.dumps({})), tools={})
+def test_reports_invalid_arguments_json(ijon, openai_endpoint):
+    openai_endpoint(tool_call(raw_arguments="not json"), assistant_message("done"))
 
-    assert "unknown tool" in msg["content"]
+    result = ijon.run("hi", "--model", "test-model", "--bash", "--jsonl")
 
-
-def test_reports_invalid_arguments_json():
-    tools = {"echo": tool("echo", lambda args: "ok")}
-
-    msg = execute_tool_call(call("echo", "not json"), tools)
-
-    assert "invalid tool arguments JSON" in msg["content"]
+    assert result.returncode == 0, result.stderr
+    assert "invalid tool arguments JSON" in tool_results(result)[0]["content"]
 
 
-def test_reports_tool_exception_instead_of_crashing():
-    def boom(args):
-        raise RuntimeError("kaboom")
+def test_runs_every_tool_call_in_order(ijon, openai_endpoint):
+    openai_endpoint(
+        tool_calls(
+            ("execute_bash_script", {"script": "echo one"}, "call_1"),
+            ("execute_bash_script", {"script": "echo two"}, "call_2"),
+        ),
+        assistant_message("done"),
+    )
 
-    tools = {"boom": tool("boom", boom)}
+    result = ijon.run("hi", "--model", "test-model", "--bash", "--jsonl")
 
-    msg = execute_tool_call(call("boom", json.dumps({})), tools)
+    results = tool_results(result)
+    assert [r["tool_call_id"] for r in results] == ["call_1", "call_2"]
+    assert "one" in results[0]["content"]
+    assert "two" in results[1]["content"]
 
-    assert "kaboom" in msg["content"]
-    assert msg["tool_call_id"] == "call_1"
+
+def test_reports_tool_failure_instead_of_crashing(ijon, openai_endpoint):
+    # The model omitted the required argument; the tool blows up on lookup.
+    openai_endpoint(tool_call({}), assistant_message("done"))
+
+    result = ijon.run("hi", "--model", "test-model", "--bash", "--jsonl")
+
+    assert result.returncode == 0, result.stderr
+    (tool_msg,) = tool_results(result)
+    assert tool_msg["tool_call_id"] == "call_1"
+    assert tool_msg["content"].startswith("error:")
