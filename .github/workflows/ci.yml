@@ -3,9 +3,35 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
 
 jobs:
-  check:
+  lint-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Biome check
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm typecheck
+
+  lint-python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -20,31 +46,39 @@ jobs:
         with:
           python-version-file: ".python-version"
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
       - name: Install dependencies
-        run: |
-          uv sync --dev
-          pnpm install --frozen-lockfile
+        run: uv sync --dev
 
       - name: Ruff check
         run: uv run ruff check
 
-      - name: Biome check
-        run: pnpm lint
-
       - name: Type check
-        run: |
-          uv run ty check
-          pnpm typecheck
+        run: uv run ty check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ".python-version"
+
+      # The shared suite shells out to `node typescript/ijon.ts`; no pnpm
+      # install needed since the TypeScript implementation is zero-dependency.
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: uv sync --dev
 
       - name: Pytest (shared suite, both implementations)
         run: uv run pytest
