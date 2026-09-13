@@ -31,11 +31,16 @@ class Tool:
 
 @dataclass
 class HttpTransport:
-    """Makes HTTP requests, retrying 429/5xx and timeouts with exponential backoff."""
+    """Makes HTTP requests, retrying 429/5xx and timeouts with exponential backoff.
+
+    The timeout is a stall timeout, not a total deadline: it restarts at each phase
+    (connecting, waiting for headers, every body chunk), so a slow but progressing
+    response is not cut off.
+    """
 
     request_max_attempts: int
     request_base_delay: float  # seconds; doubles each attempt
-    timeout: int  # seconds
+    timeout: int  # seconds per phase
 
     def _retry(self, attempt: int, reason: str) -> bool:
         """Sleep with backoff before retrying; return False when attempts exhausted so caller gives up."""
@@ -98,6 +103,11 @@ class HttpTransport:
                     )
                 return None
             except urllib.error.URLError as e:
+                # a connect timeout arrives wrapped in URLError, a read timeout raw
+                if isinstance(e.reason, socket.timeout):
+                    if self._retry(attempt, f"request timed out after {self.timeout}s"):
+                        continue
+                    return None
                 logger.error("cannot connect to %s: %s", url, e.reason)
                 return None
             except Exception as e:

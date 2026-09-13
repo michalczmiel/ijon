@@ -59,14 +59,14 @@ ijon "your prompt" --model <model> --jsonl > session.jsonl
 
 Set via environment variables (not auto-loaded from `.env`):
 
-| Variable                | Description                                      | Default  |
-| ----------------------- | ------------------------------------------------ | -------- |
-| `OPENAI_BASE_URL`       | API base URL                                     | required |
-| `OPENAI_API_KEY`        | Bearer token; header omitted if unset            | —        |
-| `IJON_BASH_TIMEOUT`     | Bash tool timeout, seconds                       | `120`    |
-| `IJON_MAX_ATTEMPTS`     | HTTP attempts, retrying 429/5xx and timeouts     | `3`      |
-| `IJON_RETRY_BASE_DELAY` | Seconds before first retry, doubles each attempt | `1.0`    |
-| `IJON_HTTP_TIMEOUT`     | HTTP timeout, seconds; retried on timeout        | `120`    |
+| Variable                | Description                                                                                  | Default  |
+| ----------------------- | -------------------------------------------------------------------------------------------- | -------- |
+| `OPENAI_BASE_URL`       | API base URL                                                                                 | required |
+| `OPENAI_API_KEY`        | Bearer token; header omitted if unset                                                        | —        |
+| `IJON_BASH_TIMEOUT`     | Bash tool timeout, seconds                                                                   | `120`    |
+| `IJON_MAX_ATTEMPTS`     | HTTP attempts, retrying 429/5xx and timeouts                                                 | `3`      |
+| `IJON_RETRY_BASE_DELAY` | Seconds before first retry, doubles each attempt                                             | `1.0`    |
+| `IJON_HTTP_TIMEOUT`     | HTTP stall timeout, seconds; restarts per phase (connect, headers, each body chunk); retried | `120`    |
 
 ## MCP
 

@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 
@@ -85,6 +86,63 @@ def test_retries_on_timeout(ijon, httpserver):
     assert result.returncode == 1
     assert result.stderr.count("timed out after 1s") == 2
     assert "giving up after 2 attempts" in result.stderr
+
+
+def test_retries_when_the_body_stalls(ijon, httpserver):
+    release = threading.Event()
+
+    def stall_mid_body(_request) -> Response:
+        def chunks():
+            yield "{"
+            release.wait(timeout=10)
+            yield "}"
+
+        return Response(chunks(), content_type="application/json")
+
+    httpserver.expect_request("/v1/chat/completions").respond_with_handler(
+        stall_mid_body
+    )
+
+    try:
+        result = ijon.run(
+            "hi",
+            "--model",
+            "test-model",
+            env={"IJON_HTTP_TIMEOUT": "1", "IJON_MAX_ATTEMPTS": "2"},
+        )
+    finally:
+        release.set()
+        for _ in range(50):
+            if len(completion_requests(httpserver)) >= 2:
+                break
+            time.sleep(0.1)
+
+    assert result.returncode == 1
+    assert result.stderr.count("timed out after 1s") == 2
+    assert "giving up after 2 attempts" in result.stderr
+
+
+def test_slow_but_progressing_body_is_not_a_timeout(ijon, httpserver):
+    # The timeout is per phase, not a total deadline: three chunks 0.6s apart take
+    # longer than the 1s timeout overall, yet no single gap exceeds it.
+    body = json.dumps(assistant_message("done"))
+    third = len(body) // 3
+
+    def trickle(_request) -> Response:
+        def chunks():
+            for piece in (body[:third], body[third : 2 * third], body[2 * third :]):
+                yield piece
+                time.sleep(0.6)
+
+        return Response(chunks(), content_type="application/json")
+
+    httpserver.expect_request("/v1/chat/completions").respond_with_handler(trickle)
+
+    result = ijon.run("hi", "--model", "test-model", env={"IJON_HTTP_TIMEOUT": "1"})
+
+    assert result.returncode == 0, result.stderr
+    assert "timed out" not in result.stderr
+    assert "done" in result.stderr
 
 
 def test_unauthorized_explains_static_token_auth(ijon, httpserver):

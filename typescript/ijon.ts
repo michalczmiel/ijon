@@ -27,11 +27,17 @@ type Tool = {
   execute: (args: Json) => unknown | Promise<unknown>;
 };
 
-/** Makes HTTP requests, retrying 429/5xx and timeouts with exponential backoff. */
+/**
+ * Makes HTTP requests, retrying 429/5xx and timeouts with exponential backoff.
+ *
+ * The timeout is a stall timeout, not a total deadline: it restarts at each phase
+ * (connecting and waiting for headers, then every body chunk), so a slow but
+ * progressing response is not cut off.
+ */
 class HttpTransport {
   #request_max_attempts: number;
   #request_base_delay: number; // seconds; doubles each attempt
-  #timeout: number; // seconds
+  #timeout: number; // seconds per phase
 
   constructor(fields: {
     request_max_attempts: number;
@@ -59,6 +65,36 @@ class HttpTransport {
     return true;
   }
 
+  /** POST and read the whole body, re-arming the stall timer on every chunk. */
+  async #fetch(
+    url: string,
+    headers: Record<string, string>,
+    body: string,
+  ): Promise<[Response, string]> {
+    const controller = new AbortController();
+    const abort = (): void =>
+      controller.abort(new DOMException("stalled", "TimeoutError"));
+    let timer = setTimeout(abort, this.#timeout * 1000);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: controller.signal,
+      });
+      const decoder = new TextDecoder();
+      let data = "";
+      for await (const chunk of response.body ?? []) {
+        clearTimeout(timer);
+        timer = setTimeout(abort, this.#timeout * 1000);
+        data += decoder.decode(chunk, { stream: true });
+      }
+      return [response, data + decoder.decode()];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async request(
     url: string,
     headers: Record<string, string>,
@@ -68,13 +104,7 @@ class HttpTransport {
 
     for (let attempt = 1; attempt <= this.#request_max_attempts; attempt++) {
       try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers,
-          body: body_bytes,
-          signal: AbortSignal.timeout(this.#timeout * 1000),
-        });
-        const data = await response.text();
+        const [response, data] = await this.#fetch(url, headers, body_bytes);
         if (response.ok) {
           return [data, response.headers];
         }
