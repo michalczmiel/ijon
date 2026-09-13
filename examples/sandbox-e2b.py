@@ -9,7 +9,7 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
 if not OPENAI_API_KEY or not OPENAI_BASE_URL:
     raise ValueError("OPENAI_API_KEY and OPENAI_BASE_URL must be set")
 
-IJON_URL = "https://raw.githubusercontent.com/michalczmiel/ijon/main/ijon.py"
+IJON_URL = "https://raw.githubusercontent.com/michalczmiel/ijon/main/python/ijon.py"
 
 MCP_CONFIG = {
     "mcpServers": {

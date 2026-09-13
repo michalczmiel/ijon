@@ -16,9 +16,17 @@ import urllib.request
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 logger = logging.getLogger("ijon")
+
+
+@dataclass
+class Tool:
+    name: str
+    description: str
+    parameters: dict  # JSON schema for the arguments
+    execute: Callable[[dict], Any]  # str passes through, anything else is JSON-encoded
 
 
 @dataclass
@@ -221,7 +229,12 @@ class HttpMCPClient:
         response = self.transport.request(self.url, self.headers, body)
         if not response:
             return None
-        data, _ = response
+        data, headers = response
+        # Session ids are optional: stateful servers issue one on initialize to
+        # carry on the session, stateless ones omit it. Only echo it back when present.
+        session_id = headers.get("mcp-session-id")
+        if session_id:
+            self.headers["mcp-session-id"] = session_id
         parsed = self._parse_response(data)
         if not parsed:
             return None
@@ -232,27 +245,15 @@ class HttpMCPClient:
         return parsed.get("result")
 
     def connect(self) -> bool:
-        body = {
-            "jsonrpc": "2.0",
-            "id": next(self._ids),
-            "method": "initialize",
-            "params": {
+        result = self._send(
+            "initialize",
+            {
                 "protocolVersion": "2025-11-25",
                 "capabilities": {},
                 "clientInfo": {"name": "ijon", "version": "0.1.0"},
             },
-        }
-        response = self.transport.request(self.url, self.headers, body)
-        if not response:
-            return False
-        _, headers = response
-        # Session ids are optional: stateful servers issue one to carry on the
-        # session, stateless ones omit it. Only echo it back when present.
-        session_id = headers.get("mcp-session-id")
-        if session_id:
-            self.headers["mcp-session-id"] = session_id
-
-        return True
+        )
+        return result is not None and "error" not in result
 
     def _parse_response(self, raw: str) -> Optional[dict]:
         # try JSON response first, if not fallback to SSE
@@ -281,9 +282,11 @@ class HttpMCPClient:
 
 def execute_bash_script(script: str, timeout: int) -> str:
     # start_new_session groups the shell and its children so a timeout can kill the whole group, not just the shell.
+    # shell=True alone would run /bin/sh (dash on Debian); the tool promises bash.
     with subprocess.Popen(
         script,
         shell=True,
+        executable="/bin/bash",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -309,11 +312,11 @@ def execute_bash_script(script: str, timeout: int) -> str:
         return "\n".join(parts)
 
 
-def make_bash_tool(timeout: int) -> dict:
-    return {
-        "name": "execute_bash_script",
-        "description": "Execute a bash script and return the output",
-        "parameters": {
+def make_bash_tool(timeout: int) -> Tool:
+    return Tool(
+        name="execute_bash_script",
+        description="Execute a bash script and return the output",
+        parameters={
             "type": "object",
             "properties": {
                 "script": {
@@ -323,11 +326,11 @@ def make_bash_tool(timeout: int) -> dict:
             },
             "required": ["script"],
         },
-        "execute": lambda args: execute_bash_script(args["script"], timeout=timeout),
-    }
+        execute=lambda args: execute_bash_script(args["script"], timeout=timeout),
+    )
 
 
-def execute_tool_call(tool_call: dict, tools: dict[str, dict]) -> dict:
+def execute_tool_call(tool_call: dict, tools: dict[str, Tool]) -> dict:
     """Run one tool call, return the `role: tool` message to append."""
 
     def reply(result) -> dict:
@@ -351,7 +354,7 @@ def execute_tool_call(tool_call: dict, tools: dict[str, dict]) -> dict:
 
     logger.info("executing tool: %s with args %s", tool_name, tool_args)
     try:
-        return reply(tool["execute"](tool_args))
+        return reply(tool.execute(tool_args))
     except Exception as e:
         logger.error("tool %s failed: %s", tool_name, e)
         return reply(f"error: {e}")
@@ -424,7 +427,7 @@ class Arguments:
 def run_agent(
     args: Arguments,
     client: OpenAICompatibleClient,
-    tools: list[dict],
+    tools: list[Tool],
 ) -> bool:
     """Run the agent loop; return False on any error so callers exit non-zero."""
     iteration_count = 0
@@ -435,14 +438,14 @@ def run_agent(
         if args.jsonl:
             print(json.dumps({"type": event_type, **fields}), flush=True)
 
-    tools_by_name = {tool["name"]: tool for tool in tools}
+    tools_by_name = {tool.name: tool for tool in tools}
     tool_schemas = [
         {
             "type": "function",
             "function": {
-                "name": tool["name"],
-                "description": tool["description"],
-                "parameters": tool["parameters"],
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
             },
         }
         for tool in tools
@@ -599,7 +602,7 @@ def load_skills_from_directory(directory: str = ".agents/skills") -> list[Skill]
     return skills
 
 
-def make_skill_tool(skills: list[Skill]) -> dict:
+def make_skill_tool(skills: list[Skill]) -> Tool:
     """Expose discovered skills as a single tool that loads a skill into context."""
     by_name = {skill.name: skill for skill in skills}
     available = "\n".join(f"- {s.name}: {s.description}" for s in skills)
@@ -613,12 +616,12 @@ def make_skill_tool(skills: list[Skill]) -> dict:
             return f"error: unknown skill '{name}'"
         return skill.content
 
-    return {
-        "name": "skill",
-        "description": (
+    return Tool(
+        name="skill",
+        description=(
             "Load a skill's instructions into context. Available skills:\n" + available
         ),
-        "parameters": {
+        parameters={
             "type": "object",
             "properties": {
                 "name": {
@@ -629,8 +632,8 @@ def make_skill_tool(skills: list[Skill]) -> dict:
             },
             "required": ["name"],
         },
-        "execute": execute,
-    }
+        execute=execute,
+    )
 
 
 def main() -> None:
@@ -650,7 +653,7 @@ def main() -> None:
         timeout=config.http_timeout,
     )
 
-    tools = []
+    tools: list[Tool] = []
 
     if arguments.bash:
         tools.append(make_bash_tool(config.bash_timeout))
@@ -665,12 +668,12 @@ def main() -> None:
         for mcp_tool in mcp_tools:
             name = mcp_tool["name"]
             tools.append(
-                {
-                    "name": name,
-                    "description": mcp_tool["description"],
-                    "parameters": mcp_tool["inputSchema"],
-                    "execute": functools.partial(mcp_client.call_tool, name),
-                }
+                Tool(
+                    name=name,
+                    description=mcp_tool["description"],
+                    parameters=mcp_tool["inputSchema"],
+                    execute=functools.partial(mcp_client.call_tool, name),
+                )
             )
 
     if arguments.skills:

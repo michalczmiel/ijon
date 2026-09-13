@@ -2,150 +2,164 @@ import json
 
 import pytest
 
-from ijon import (
-    Config,
-    HttpTransport,
-    expand_env_vars,
-    load_mcp_clients_from_config,
+from conftest import completion_requests, requests_to, tool_names_offered
+from factories import assistant_message
+
+MCP_INITIALIZED = {"jsonrpc": "2.0", "id": 1, "result": {}}
+MCP_NO_TOOLS = {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}}
+
+
+def fake_mcp_server(httpserver, path: str = "/mcp") -> None:
+    """A minimal MCP endpoint: answers initialize and an empty tools/list."""
+    httpserver.expect_ordered_request(path, method="POST").respond_with_json(
+        MCP_INITIALIZED
+    )
+    httpserver.expect_ordered_request(path, method="POST").respond_with_json(
+        MCP_NO_TOOLS
+    )
+
+
+def test_missing_base_url_exits_nonzero(ijon, httpserver):
+    result = ijon.run("hi", "--model", "test-model", env={"OPENAI_BASE_URL": None})
+
+    assert result.returncode == 1
+    assert "OPENAI_BASE_URL" in result.stderr
+    assert not httpserver.log
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("IJON_BASH_TIMEOUT", "abc"),
+        ("IJON_HTTP_TIMEOUT", "1.5"),
+        ("IJON_MAX_ATTEMPTS", "0"),
+        ("IJON_RETRY_BASE_DELAY", "fast"),
+        ("IJON_RETRY_BASE_DELAY", "-1"),
+    ],
 )
+def test_invalid_setting_is_an_error(ijon, httpserver, name, value):
+    result = ijon.run("hi", "--model", "test-model", env={name: value})
+
+    assert result.returncode == 1
+    assert name in result.stderr
+    assert not httpserver.log
 
 
-def test_reads_settings_from_the_environment(monkeypatch):
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
-    monkeypatch.setenv("OPENAI_API_KEY", "secret")
-    monkeypatch.setenv("IJON_BASH_TIMEOUT", "30")
-
-    config = Config.from_env()
-
-    assert config.openai_base_url == "https://api.example.com"
-    assert config.openai_api_key == "secret"
-    assert config.bash_timeout == 30
-
-
-def test_missing_base_url_is_an_error(monkeypatch):
-    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-
-    with pytest.raises(ValueError, match="OPENAI_BASE_URL"):
-        Config.from_env()
-
-
-def test_api_key_is_optional(monkeypatch):
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    assert Config.from_env().openai_api_key is None
-
-
-def test_bash_timeout_defaults_when_unset(monkeypatch):
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
-    monkeypatch.delenv("IJON_BASH_TIMEOUT", raising=False)
-
-    assert Config.from_env().bash_timeout == 120
-
-
-def test_non_integer_env_is_an_error(monkeypatch):
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
-    monkeypatch.setenv("IJON_BASH_TIMEOUT", "abc")
-
-    with pytest.raises(ValueError, match="IJON_BASH_TIMEOUT"):
-        Config.from_env()
-
-
-def test_non_number_env_is_an_error(monkeypatch):
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
-    monkeypatch.setenv("IJON_RETRY_BASE_DELAY", "fast")
-
-    with pytest.raises(ValueError, match="IJON_RETRY_BASE_DELAY"):
-        Config.from_env()
-
-
-def test_max_attempts_below_one_is_an_error(monkeypatch):
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
-    monkeypatch.setenv("IJON_MAX_ATTEMPTS", "0")
-
-    with pytest.raises(ValueError, match="IJON_MAX_ATTEMPTS"):
-        Config.from_env()
-
-
-def test_negative_retry_base_delay_is_an_error(monkeypatch):
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.example.com")
-    monkeypatch.setenv("IJON_RETRY_BASE_DELAY", "-1")
-
-    with pytest.raises(ValueError, match="IJON_RETRY_BASE_DELAY"):
-        Config.from_env()
-
-
-def test_expand_env_vars_substitutes_set_variable(monkeypatch):
-    monkeypatch.setenv("API_KEY", "secret")
-    assert expand_env_vars("Bearer ${API_KEY}") == "Bearer secret"
-
-
-def test_expand_env_vars_prefers_value_over_default_when_set(monkeypatch):
-    monkeypatch.setenv("API_BASE_URL", "https://real.example.com")
-    assert (
-        expand_env_vars("${API_BASE_URL:-https://fallback.example.com}/mcp")
-        == "https://real.example.com/mcp"
+def test_max_attempts_is_read_from_the_environment(ijon, httpserver):
+    httpserver.expect_request("/v1/chat/completions").respond_with_data(
+        "boom", status=500
     )
 
+    ijon.run("hi", "--model", "test-model", env={"IJON_MAX_ATTEMPTS": "2"})
 
-def test_expand_env_vars_uses_default_when_unset(monkeypatch):
-    monkeypatch.delenv("API_BASE_URL", raising=False)
-    assert (
-        expand_env_vars("${API_BASE_URL:-https://fallback.example.com}/mcp")
-        == "https://fallback.example.com/mcp"
-    )
+    assert len(completion_requests(httpserver)) == 2
 
 
-def test_expand_env_vars_unset_without_default_becomes_empty(monkeypatch):
-    monkeypatch.delenv("MISSING", raising=False)
-    assert expand_env_vars("Bearer ${MISSING}") == "Bearer "
-
-
-def test_expand_env_vars_handles_multiple_references(monkeypatch):
-    monkeypatch.setenv("HOST", "api.example.com")
-    monkeypatch.setenv("TOKEN", "abc")
-    assert (
-        expand_env_vars("https://${HOST}/mcp?t=${TOKEN}")
-        == "https://api.example.com/mcp?t=abc"
-    )
-
-
-def test_load_mcp_clients_expands_url_and_headers(
-    tmp_path, monkeypatch, transport: HttpTransport
+def test_mcp_config_expands_env_vars_in_url_and_headers(
+    ijon, httpserver, openai_endpoint, tmp_path
 ):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("API_KEY", "secret")
-    monkeypatch.delenv("API_BASE_URL", raising=False)
+    fake_mcp_server(httpserver)
+    openai_endpoint(assistant_message("done"))
     config = {
         "mcpServers": {
             "api": {
-                "url": "${API_BASE_URL:-https://api.example.com}/mcp",
+                "url": "${MCP_BASE_URL:-" + httpserver.url_for("") + "}/mcp",
                 "headers": {"Authorization": "Bearer ${API_KEY}"},
             }
         }
     }
     (tmp_path / "mcp.json").write_text(json.dumps(config))
 
-    clients = load_mcp_clients_from_config(transport)
+    result = ijon.run(
+        "hi", "--model", "test-model", "--mcp", env={"API_KEY": "secret"}, cwd=tmp_path
+    )
 
-    assert len(clients) == 1
-    assert clients[0].url == "https://api.example.com/mcp"
-    assert clients[0].headers["Authorization"] == "Bearer secret"
+    assert result.returncode == 0, result.stderr
+    mcp_request = requests_to(httpserver, "/mcp")[0]
+    assert mcp_request.headers["Authorization"] == "Bearer secret"
 
 
-def test_load_mcp_clients_skips_server_missing_url(
-    tmp_path, monkeypatch, transport: HttpTransport
+def test_mcp_config_prefers_env_value_over_default(
+    ijon, httpserver, openai_endpoint, tmp_path
 ):
-    monkeypatch.chdir(tmp_path)
+    fake_mcp_server(httpserver, "/real")
+    openai_endpoint(assistant_message("done"))
+    config = {"mcpServers": {"api": {"url": "${MCP_URL:-http://fallback.test/mcp}"}}}
+    (tmp_path / "mcp.json").write_text(json.dumps(config))
+
+    ijon.run(
+        "hi",
+        "--model",
+        "test-model",
+        "--mcp",
+        env={"MCP_URL": httpserver.url_for("/real")},
+        cwd=tmp_path,
+    )
+
+    assert len(requests_to(httpserver, "/real")) == 2
+
+
+def test_mcp_config_unset_var_without_default_becomes_empty(
+    ijon, httpserver, openai_endpoint, tmp_path
+):
+    fake_mcp_server(httpserver)
+    openai_endpoint(assistant_message("done"))
     config = {
         "mcpServers": {
-            "broken": {"headers": {"Authorization": "Bearer x"}},
-            "ok": {"url": "https://api.example.com/mcp"},
+            "api": {
+                "url": httpserver.url_for("/mcp"),
+                "headers": {"X-Token": "prefix-${MISSING_TOKEN}"},
+            }
         }
     }
     (tmp_path / "mcp.json").write_text(json.dumps(config))
 
-    clients = load_mcp_clients_from_config(transport)
+    result = ijon.run("hi", "--model", "test-model", "--mcp", cwd=tmp_path)
 
-    assert len(clients) == 1
-    assert clients[0].url == "https://api.example.com/mcp"
+    assert requests_to(httpserver, "/mcp")[0].headers["X-Token"] == "prefix-"
+    assert "MISSING_TOKEN" in result.stderr
+
+
+def test_mcp_config_skips_server_missing_url(
+    ijon, httpserver, openai_endpoint, tmp_path
+):
+    fake_mcp_server(httpserver)
+    openai_endpoint(assistant_message("done"))
+    config = {
+        "mcpServers": {
+            "broken": {"headers": {"Authorization": "Bearer x"}},
+            "ok": {"url": httpserver.url_for("/mcp")},
+        }
+    }
+    (tmp_path / "mcp.json").write_text(json.dumps(config))
+
+    result = ijon.run("hi", "--model", "test-model", "--mcp", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "broken" in result.stderr
+    assert len(requests_to(httpserver, "/mcp")) == 2
+
+
+def test_missing_mcp_config_warns_and_continues(
+    ijon, httpserver, openai_endpoint, tmp_path
+):
+    openai_endpoint(assistant_message("done"))
+
+    result = ijon.run("hi", "--model", "test-model", "--mcp", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "mcp.json not found" in result.stderr
+    assert tool_names_offered(httpserver) == []
+
+
+def test_malformed_mcp_config_is_reported_and_skipped(
+    ijon, httpserver, openai_endpoint, tmp_path
+):
+    openai_endpoint(assistant_message("done"))
+    (tmp_path / "mcp.json").write_text("{not json")
+
+    result = ijon.run("hi", "--model", "test-model", "--mcp", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "malformed mcp.json" in result.stderr
+    assert tool_names_offered(httpserver) == []

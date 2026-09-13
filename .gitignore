@@ -12,3 +12,6 @@ wheels/
 .env
 .ijon
 mcp.json
+
+# Node
+node_modules/

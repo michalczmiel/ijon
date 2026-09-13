@@ -1,85 +1,99 @@
-import socket
+import threading
+import time
 
-import pytest
-from pytest_httpserver import HTTPServer
+from werkzeug.wrappers import Response
 
-from ijon import HttpTransport
+from conftest import completion_requests
+from factories import assistant_message
 
 
-def test_request_retries_on_server_error(
-    httpserver: HTTPServer, transport: HttpTransport
-):
-    httpserver.expect_request("/x", method="POST").respond_with_data("boom", status=500)
-
-    result = transport.request(
-        httpserver.url_for("/x"), {"Content-Type": "application/json"}, {}
+def test_retries_on_server_error(ijon, httpserver):
+    httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_data(
+        "boom", status=500
     )
 
-    assert result is None
-    assert len(httpserver.log) == transport.request_max_attempts
+    result = ijon.run("hi", "--model", "test-model", env={"IJON_MAX_ATTEMPTS": "3"})
+
+    assert result.returncode == 1
+    assert len(completion_requests(httpserver)) == 3
+    assert "giving up after 3 attempts" in result.stderr
 
 
-def test_request_retries_on_too_many_requests(
-    httpserver: HTTPServer, transport: HttpTransport
-):
-    httpserver.expect_request("/x", method="POST").respond_with_data(
+def test_retries_on_too_many_requests(ijon, httpserver):
+    httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_data(
         "slow down", status=429
     )
 
-    result = transport.request(
-        httpserver.url_for("/x"), {"Content-Type": "application/json"}, {}
+    result = ijon.run("hi", "--model", "test-model", env={"IJON_MAX_ATTEMPTS": "3"})
+
+    assert result.returncode == 1
+    assert len(completion_requests(httpserver)) == 3
+
+
+def test_does_not_retry_on_client_error(ijon, httpserver):
+    httpserver.expect_request("/v1/chat/completions", method="POST").respond_with_data(
+        "nope", status=400
     )
 
-    assert result is None
-    assert len(httpserver.log) == transport.request_max_attempts
+    result = ijon.run("hi", "--model", "test-model", env={"IJON_MAX_ATTEMPTS": "3"})
+
+    assert result.returncode == 1
+    assert len(completion_requests(httpserver)) == 1
+    assert "HTTP 400" in result.stderr
+    assert "nope" in result.stderr
 
 
-def test_request_does_not_retry_on_client_error(
-    httpserver: HTTPServer, transport: HttpTransport
-):
-    httpserver.expect_request("/x", method="POST").respond_with_data("nope", status=400)
+def test_returns_data_after_a_retry(ijon, httpserver):
+    httpserver.expect_ordered_request(
+        "/v1/chat/completions", method="POST"
+    ).respond_with_data("boom", status=500)
+    httpserver.expect_ordered_request(
+        "/v1/chat/completions", method="POST"
+    ).respond_with_json(assistant_message("done"))
 
-    result = transport.request(
-        httpserver.url_for("/x"), {"Content-Type": "application/json"}, {}
+    result = ijon.run("hi", "--model", "test-model")
+
+    assert result.returncode == 0, result.stderr
+    assert len(completion_requests(httpserver)) == 2
+    assert "retrying in 0.0s (attempt 1/3)" in result.stderr
+
+
+def test_retries_on_timeout(ijon, httpserver):
+    release = threading.Event()
+
+    def stall(_request) -> Response:
+        release.wait(timeout=10)
+        return Response("late")
+
+    httpserver.expect_request("/v1/chat/completions").respond_with_handler(stall)
+
+    try:
+        result = ijon.run(
+            "hi",
+            "--model",
+            "test-model",
+            env={"IJON_HTTP_TIMEOUT": "1", "IJON_MAX_ATTEMPTS": "2"},
+        )
+    finally:
+        # let the stalled handler threads finish so they don't leak into the next test
+        release.set()
+        for _ in range(50):
+            if len(completion_requests(httpserver)) >= 2:
+                break
+            time.sleep(0.1)
+
+    assert result.returncode == 1
+    assert result.stderr.count("timed out after 1s") == 2
+    assert "giving up after 2 attempts" in result.stderr
+
+
+def test_unauthorized_explains_static_token_auth(ijon, httpserver):
+    httpserver.expect_request("/v1/chat/completions").respond_with_data(
+        "", status=401, headers={"WWW-Authenticate": "Bearer"}
     )
 
-    assert result is None
-    assert len(httpserver.log) == 1
+    result = ijon.run("hi", "--model", "test-model")
 
-
-def test_request_retries_on_timeout(
-    monkeypatch: pytest.MonkeyPatch, transport: HttpTransport
-):
-    timeouts = []
-
-    def time_out(_req, timeout=None):
-        timeouts.append(timeout)
-        raise socket.timeout("timed out")
-
-    monkeypatch.setattr("urllib.request.urlopen", time_out)
-
-    result = transport.request(
-        "http://example.test/x", {"Content-Type": "application/json"}, {}
-    )
-
-    assert result is None
-    # retried up to the limit, each attempt forwarding the configured timeout
-    assert timeouts == [transport.timeout] * transport.request_max_attempts
-
-
-def test_request_returns_data_after_a_retry(
-    httpserver: HTTPServer, transport: HttpTransport
-):
-    httpserver.expect_ordered_request("/x", method="POST").respond_with_data(
-        "boom", status=500
-    )
-    httpserver.expect_ordered_request("/x", method="POST").respond_with_data("ok")
-
-    result = transport.request(
-        httpserver.url_for("/x"), {"Content-Type": "application/json"}, {}
-    )
-
-    assert result is not None
-    data, _ = result
-    assert data == "ok"
-    assert len(httpserver.log) == 2
+    assert result.returncode == 1
+    assert len(completion_requests(httpserver)) == 1
+    assert "static tokens" in result.stderr
