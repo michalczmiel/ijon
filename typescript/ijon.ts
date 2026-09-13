@@ -18,6 +18,7 @@ const sleep = (seconds: number): Promise<void> =>
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
+// biome-ignore lint/suspicious/noExplicitAny: mirrors python's dict[str, Any]; JSON payloads are indexed freely
 type Json = Record<string, any>;
 
 type Tool = {
@@ -328,7 +329,11 @@ class HttpMCPClient {
       body["params"] = params;
     }
 
-    const response = await this.#transport.request(this.#url, this.#headers, body);
+    const response = await this.#transport.request(
+      this.#url,
+      this.#headers,
+      body,
+    );
     if (!response) {
       return null;
     }
@@ -392,10 +397,7 @@ class HttpMCPClient {
   }
 }
 
-function execute_bash_script(
-  script: string,
-  timeout: number,
-): Promise<string> {
+function execute_bash_script(script: string, timeout: number): Promise<string> {
   return new Promise((resolve, reject) => {
     // detached groups the shell and its children so a timeout can kill the whole group, not just the shell.
     // shell: true alone would run /bin/sh (dash on Debian); the tool promises bash.
@@ -408,21 +410,24 @@ function execute_bash_script(
     let stdout = "";
     let stderr = "";
     let timed_out = false;
-    child.stdout!.setEncoding("utf-8");
-    child.stderr!.setEncoding("utf-8");
-    child.stdout!.on("data", (chunk: string) => {
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk: string) => {
       stdout += chunk;
     });
-    child.stderr!.on("data", (chunk: string) => {
+    child.stderr.on("data", (chunk: string) => {
       stderr += chunk;
     });
 
     const timer = setTimeout(() => {
       timed_out = true;
       // shell is its own group leader (detached), so pid == group id;
-      // ESRCH means the group already drained.
+      // ESRCH means the group already drained. pid is only unset when spawn
+      // itself failed, and the "error" handler clears this timer in that case.
       try {
-        process.kill(-child.pid!, "SIGKILL");
+        if (child.pid !== undefined) {
+          process.kill(-child.pid, "SIGKILL");
+        }
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "ESRCH") {
           reject(e);
@@ -440,8 +445,9 @@ function execute_bash_script(
         resolve(`error: Bash script timed out after ${timeout} seconds`);
         return;
       }
-      // python reports a signal death as the negated signal number
-      const exit_code = code ?? -os.constants.signals[signal!];
+      // exactly one of code/signal is set; python reports a signal death as
+      // the negated signal number
+      const exit_code = signal === null ? code : -os.constants.signals[signal];
       const parts = [`exit_code: ${exit_code}`];
       if (stdout) {
         parts.push(`stdout:\n${stdout}`);
@@ -530,7 +536,11 @@ function read_piped_stdin(): string {
 
 // One table drives parseArgs, the usage line and --help, so they cannot drift.
 const OPTIONS = {
-  help: { type: "boolean", short: "h", help: "show this help message and exit" },
+  help: {
+    type: "boolean",
+    short: "h",
+    help: "show this help message and exit",
+  },
   model: { type: "string", required: true },
   bash: { type: "boolean", help: "enable the bash tool" },
   mcp: {

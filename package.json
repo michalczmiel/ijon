@@ -9,9 +9,12 @@
     "node": ">=24.2"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check",
+    "format": "biome format --write"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.13",
     "@types/node": "^24.10.1",
     "typescript": "~7.0.2"
   }
